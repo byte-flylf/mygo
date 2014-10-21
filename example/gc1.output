@@ -1,0 +1,54 @@
+# Console 1
+$ ./gcl -addr=127.0.0.1:50000
+gc> peers http://127.0.0.1:50000 http://127.0.0.1:50001 http://127.0.0.1:50002
+gc> get www.google.com
+www.google.com:74.125.224.176
+gc> stats
+Bytes:     28
+Items:     1
+Gets:      3
+Hits:      2
+Evictions: 0
+gc> quit
+ 
+# Console 2
+$ ./gcl -addr=127.0.0.1:50001
+gc> peers http://127.0.0.1:50000 http://127.0.0.1:50001 http://127.0.0.1:50002
+gc> get www.google.com
+www.google.com:74.125.224.176
+gc> stats
+Bytes:     0
+Items:     0
+Gets:      1
+Hits:      0
+Evictions: 0
+gc> get www.google.com
+www.google.com:74.125.224.176
+gc> stats
+Bytes:     28
+Items:     1
+Gets:      2
+Hits:      0
+Evictions: 0
+gc> quit
+ 
+# Console 3
+$ ./gcl -addr=127.0.0.1:50002
+gc> peers http://127.0.0.1:50000 http://127.0.0.1:50001 http://127.0.0.1:50002
+gc> get www.google.com
+www.google.com:74.125.224.176
+gc> stats
+Bytes:     0
+Items:     0
+Gets:      1
+Hits:      0
+Evictions: 0
+gc> get www.google.com
+www.google.com:74.125.224.176
+gc> stats
+Bytes:     28
+Items:     1
+Gets:      2
+Hits:      0
+Evictions: 0
+gc> quit

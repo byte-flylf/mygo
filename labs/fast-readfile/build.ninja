@@ -1,0 +1,30 @@
+cc=g++
+cflags= -g -c
+
+rule cc
+    command = $cc $cflags $in -o $out
+
+rule link
+    command = $cc $in -o $out
+
+rule cleanup
+    command = rm -rf *.exe *.o
+
+
+build scanf_rd.o : cc scanf_rd.cc
+build cin_rd.o :   cc cin_rd.cc
+build cin_nosync.o :  cc cin_nosync.cc
+build analyse_rd.o : cc analyse_rd.cc
+build analyse2_rd.o : cc analyse2_rd.cc
+build map_rd.o : cc map_rd.cc
+
+build scanf_rd.exe : link scanf_rd.o
+build cin_rd.exe :  link cin_rd.o
+build cin_nosync.exe : link  cin_nosync.o
+build analyse_rd.exe : link analyse_rd.o
+build analyse2_rd.exe : link analyse2_rd.o
+build map_rd.exe  : link map_rd.o
+
+build all:  phony  scanf_rd.exe  cin_rd.exe  cin_nosync.exe  analyse_rd.exe analyse2_rd.exe map_rd.exe
+build cleanup: cleanup
+

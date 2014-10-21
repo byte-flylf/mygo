@@ -1,0 +1,52 @@
+{
+	"ImportPath": "github.com/bitly/nsq",
+	"GoVersion": "go1.1.2",
+	"Packages": [
+		"./..."
+	],
+	"Deps": [
+		{
+			"ImportPath": "github.com/BurntSushi/toml",
+			"Rev": "2dff11163ee667d51dcc066660925a92ce138deb"
+		},
+		{
+			"ImportPath": "github.com/bitly/go-hostpool",
+			"Rev": "58b95b10d6ca26723a7f46017b348653b825a8d6"
+		},
+		{
+			"ImportPath": "github.com/bitly/go-nsq",
+			"Comment": "v1.0.0-alpha",
+			"Rev": "15045438e48e3f0bb674b7aff030d09c03ba9ae3"
+		},
+		{
+			"ImportPath": "github.com/bitly/go-simplejson",
+			"Comment": "v0.5.0-alpha",
+			"Rev": "fc395a5db941cf38922b1ccbc083640cd76fe4bc"
+		},
+		{
+			"ImportPath": "github.com/bmizerany/assert",
+			"Rev": "e17e99893cb6509f428e1728281c2ad60a6b31e3"
+		},
+		{
+			"ImportPath": "github.com/bmizerany/perks/quantile",
+			"Rev": "6cb9d9d729303ee2628580d9aec5db968da3a607"
+		},
+		{
+			"ImportPath": "github.com/kr/pretty",
+			"Rev": "bc9499caa0f45ee5edb2f0209fbd61fbf3d9018f"
+		},
+		{
+			"ImportPath": "github.com/kr/text",
+			"Rev": "6807e777504f54ad073ecef66747de158294b639"
+		},
+		{
+			"ImportPath": "github.com/mreiferson/go-options",
+			"Rev": "896a539cd709f4f39d787562d1583c016ce7517e"
+		},
+		{
+			"ImportPath": "github.com/mreiferson/go-snappystream",
+			"Comment": "v0.1.1",
+			"Rev": "97c96e6648e99c2ce4fe7d169aa3f7368204e04d"
+		}
+	]
+}

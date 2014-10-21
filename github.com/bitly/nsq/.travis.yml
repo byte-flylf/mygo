@@ -1,0 +1,16 @@
+language: go
+go:
+  - 1.0.3
+  - 1.1.2
+  - 1.2.2
+  - 1.3
+env:
+  - GOARCH=amd64
+  - GOARCH=386
+script:
+  - wget "http://bitly-downloads.s3.amazonaws.com/nsq/godep.linux-$(go env GOARCH).tar.gz"
+  - tar zxvf "godep.linux-$(go env GOARCH).tar.gz"
+  - export GOPATH="$(./godep path):$GOPATH"
+  - ./test.sh
+notifications:
+  email: false
