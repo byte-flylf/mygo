@@ -1,7 +1,7 @@
 // Go support for Protocol Buffers - Google's data interchange format
 //
 // Copyright 2010 The Go Authors.  All rights reserved.
-// http://code.google.com/p/goprotobuf/
+// https://github.com/golang/protobuf
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
@@ -37,7 +37,7 @@ import (
 	"testing"
 
 	. "./testdata"
-	. "code.google.com/p/goprotobuf/proto"
+	. "github.com/golang/protobuf/proto"
 )
 
 type UnmarshalTextTest struct {
@@ -156,8 +156,8 @@ var unMarshalTextTests = []UnmarshalTextTest{
 
 	// Number too large for int64
 	{
-		in:  "count: 123456789012345678901",
-		err: "line 1.7: invalid int32: 123456789012345678901",
+		in:  "count: 1 others { key: 123456789012345678901 }",
+		err: "line 1.23: invalid int64: 123456789012345678901",
 	},
 
 	// Number too large for int32
@@ -294,8 +294,11 @@ var unMarshalTextTests = []UnmarshalTextTest{
 
 	// Missing required field
 	{
-		in:  ``,
-		err: `line 1.0: message testdata.MyMessage missing required field "count"`,
+		in:  `name: "Pawel"`,
+		err: `proto: required field "testdata.MyMessage.count" not set`,
+		out: &MyMessage{
+			Name: String("Pawel"),
+		},
 	},
 
 	// Repeated non-repeated field
@@ -408,6 +411,9 @@ func TestUnmarshalText(t *testing.T) {
 			} else if err.Error() != test.err {
 				t.Errorf("Test %d: Incorrect error.\nHave: %v\nWant: %v",
 					i, err.Error(), test.err)
+			} else if _, ok := err.(*RequiredNotSetError); ok && test.out != nil && !reflect.DeepEqual(pb, test.out) {
+				t.Errorf("Test %d: Incorrect populated \nHave: %v\nWant: %v",
+					i, pb, test.out)
 			}
 		}
 	}

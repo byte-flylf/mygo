@@ -1,6 +1,6 @@
 // Go support for Protocol Buffers - Google's data interchange format
 //
-// Copyright 2010 The Go Authors.  All rights reserved.
+// Copyright 2014 The Go Authors.  All rights reserved.
 // https://github.com/golang/protobuf
 //
 // Redistribution and use in source and binary forms, with or without
@@ -29,18 +29,66 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// A simple binary to link together the protocol buffers in this test.
-
-package testdata
+package proto_test
 
 import (
 	"testing"
 
-	"./multi"
-	"./my_test"
+	pb "./testdata"
+	"github.com/golang/protobuf/proto"
 )
 
-func TestLink(t *testing.T) {
-	_ = &multi.Multi1{}
-	_ = &my_test.Request{}
+func TestGetExtensionsWithMissingExtensions(t *testing.T) {
+	msg := &pb.MyMessage{}
+	ext1 := &pb.Ext{}
+	if err := proto.SetExtension(msg, pb.E_Ext_More, ext1); err != nil {
+		t.Fatalf("Could not set ext1: %s", ext1)
+	}
+	exts, err := proto.GetExtensions(msg, []*proto.ExtensionDesc{
+		pb.E_Ext_More,
+		pb.E_Ext_Text,
+	})
+	if err != nil {
+		t.Fatalf("GetExtensions() failed: %s", err)
+	}
+	if exts[0] != ext1 {
+		t.Errorf("ext1 not in returned extensions: %T %v", exts[0], exts[0])
+	}
+	if exts[1] != nil {
+		t.Errorf("ext2 in returned extensions: %T %v", exts[1], exts[1])
+	}
+}
+
+func TestGetExtensionStability(t *testing.T) {
+	check := func(m *pb.MyMessage) bool {
+		ext1, err := proto.GetExtension(m, pb.E_Ext_More)
+		if err != nil {
+			t.Fatalf("GetExtension() failed: %s", err)
+		}
+		ext2, err := proto.GetExtension(m, pb.E_Ext_More)
+		if err != nil {
+			t.Fatalf("GetExtension() failed: %s", err)
+		}
+		return ext1 == ext2
+	}
+	msg := &pb.MyMessage{Count: proto.Int32(4)}
+	ext0 := &pb.Ext{}
+	if err := proto.SetExtension(msg, pb.E_Ext_More, ext0); err != nil {
+		t.Fatalf("Could not set ext1: %s", ext0)
+	}
+	if !check(msg) {
+		t.Errorf("GetExtension() not stable before marshaling")
+	}
+	bb, err := proto.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Marshal() failed: %s", err)
+	}
+	msg1 := &pb.MyMessage{}
+	err = proto.Unmarshal(bb, msg1)
+	if err != nil {
+		t.Fatalf("Unmarshal() failed: %s", err)
+	}
+	if !check(msg1) {
+		t.Errorf("GetExtension() not stable after unmarshaling")
+	}
 }

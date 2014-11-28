@@ -1,6 +1,6 @@
 // Go support for Protocol Buffers - Google's data interchange format
 //
-// Copyright 2010 The Go Authors.  All rights reserved.
+// Copyright 2014 The Go Authors.  All rights reserved.
 // https://github.com/golang/protobuf
 //
 // Redistribution and use in source and binary forms, with or without
@@ -29,18 +29,38 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// A simple binary to link together the protocol buffers in this test.
-
-package testdata
+package proto
 
 import (
+	"bytes"
 	"testing"
-
-	"./multi"
-	"./my_test"
 )
 
-func TestLink(t *testing.T) {
-	_ = &multi.Multi1{}
-	_ = &my_test.Request{}
+func TestUnmarshalMessageSetWithDuplicate(t *testing.T) {
+	// Check that a repeated message set entry will be concatenated.
+	in := &MessageSet{
+		Item: []*_MessageSet_Item{
+			{TypeId: Int32(12345), Message: []byte("hoo")},
+			{TypeId: Int32(12345), Message: []byte("hah")},
+		},
+	}
+	b, err := Marshal(in)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	t.Logf("Marshaled bytes: %q", b)
+
+	m := make(map[int32]Extension)
+	if err := UnmarshalMessageSet(b, m); err != nil {
+		t.Fatalf("UnmarshalMessageSet: %v", err)
+	}
+	ext, ok := m[12345]
+	if !ok {
+		t.Fatalf("Didn't retrieve extension 12345; map is %v", m)
+	}
+	// Skip wire type/field number and length varints.
+	got := skipVarint(skipVarint(ext.enc))
+	if want := []byte("hoohah"); !bytes.Equal(got, want) {
+		t.Errorf("Combined extension is %q, want %q", got, want)
+	}
 }

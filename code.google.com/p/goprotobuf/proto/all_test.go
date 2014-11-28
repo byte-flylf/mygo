@@ -1,7 +1,7 @@
 // Go support for Protocol Buffers - Google's data interchange format
 //
 // Copyright 2010 The Go Authors.  All rights reserved.
-// http://code.google.com/p/goprotobuf/
+// https://github.com/golang/protobuf
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
@@ -45,7 +45,7 @@ import (
 	"time"
 
 	. "./testdata"
-	. "code.google.com/p/goprotobuf/proto"
+	. "github.com/golang/protobuf/proto"
 )
 
 var globalO *Buffer
@@ -1047,6 +1047,35 @@ func TestSubmessageUnrecognizedFields(t *testing.T) {
 	}
 }
 
+// Check that an int32 field can be upgraded to an int64 field.
+func TestNegativeInt32(t *testing.T) {
+	om := &OldMessage{
+		Num: Int32(-1),
+	}
+	b, err := Marshal(om)
+	if err != nil {
+		t.Fatalf("Marshal of OldMessage: %v", err)
+	}
+
+	// Check the size. It should be 11 bytes;
+	// 1 for the field/wire type, and 10 for the negative number.
+	if len(b) != 11 {
+		t.Errorf("%v marshaled as %q, wanted 11 bytes", om, b)
+	}
+
+	// Unmarshal into a NewMessage.
+	nm := new(NewMessage)
+	if err := Unmarshal(b, nm); err != nil {
+		t.Fatalf("Unmarshal to NewMessage: %v", err)
+	}
+	want := &NewMessage{
+		Num: Int64(-1),
+	}
+	if !Equal(nm, want) {
+		t.Errorf("nm = %v, want %v", nm, want)
+	}
+}
+
 // Check that we can grow an array (repeated field) to have many elements.
 // This test doesn't depend only on our encoding; for variety, it makes sure
 // we create, encode, and decode the correct contents explicitly.  It's therefore
@@ -1174,13 +1203,10 @@ func TestTypeMismatch(t *testing.T) {
 	// Now Unmarshal it to the wrong type.
 	pb2 := initGoTestField()
 	err := o.Unmarshal(pb2)
-	switch err {
-	case ErrWrongType:
-		// fine
-	case nil:
-		t.Error("expected wrong type error, got no error")
-	default:
-		t.Error("expected wrong type error, got", err)
+	if err == nil {
+		t.Error("expected error, got no error")
+	} else if !strings.Contains(err.Error(), "bad wiretype") {
+		t.Error("expected bad wiretype error, got", err)
 	}
 }
 
@@ -1361,10 +1387,11 @@ func TestAllSetDefaults(t *testing.T) {
 		F_Pinf:    Float32(float32(math.Inf(1))),
 		F_Ninf:    Float32(float32(math.Inf(-1))),
 		F_Nan:     Float32(1.7),
+		StrZero:   String(""),
 	}
 	SetDefaults(m)
 	if !Equal(m, expected) {
-		t.Errorf(" got %v\nwant %v", m, expected)
+		t.Errorf("SetDefaults failed\n got %v\nwant %v", m, expected)
 	}
 }
 
@@ -1713,7 +1740,8 @@ func TestEncodingSizes(t *testing.T) {
 		n int
 	}{
 		{&Defaults{F_Int32: Int32(math.MaxInt32)}, 6},
-		{&Defaults{F_Int32: Int32(math.MinInt32)}, 6},
+		{&Defaults{F_Int32: Int32(math.MinInt32)}, 11},
+		{&Defaults{F_Uint32: Uint32(uint32(math.MaxInt32) + 1)}, 6},
 		{&Defaults{F_Uint32: Uint32(math.MaxUint32)}, 6},
 	}
 	for _, test := range tests {
