@@ -1,5 +1,5 @@
 // Package eg implements the example-based refactoring tool whose
-// command-line is defined in code.google.com/p/go.tools/cmd/eg.
+// command-line is defined in golang.org/x/tools/cmd/eg.
 package eg
 
 import (
@@ -10,8 +10,8 @@ import (
 	"go/token"
 	"os"
 
-	"code.google.com/p/go.tools/go/loader"
-	"code.google.com/p/go.tools/go/types"
+	"golang.org/x/tools/go/loader"
+	"golang.org/x/tools/go/types"
 )
 
 const Help = `
@@ -29,7 +29,7 @@ replacement.
  	func before(s string) error { return fmt.Errorf("%s", s) }
  	func after(s string)  error { return errors.New(s) }
 
-The expression statement form is useful when the the expression has no
+The expression statement form is useful when the expression has no
 result, for example:
 
  	func before(msg string) { log.Fatalf("%s", msg) }
@@ -105,6 +105,26 @@ Imports are added as needed, but they are not removed as needed.
 Run 'goimports' on the modified file for now.
 
 Dot imports are forbidden in the template.
+
+
+TIPS
+====
+
+Sometimes a little creativity is required to implement the desired
+migration.  This section lists a few tips and tricks.
+
+To remove the final parameter from a function, temporarily change the
+function signature so that the final parameter is variadic, as this
+allows legal calls both with and without the argument.  Then use eg to
+remove the final argument from all callers, and remove the variadic
+parameter by hand.  The reverse process can be used to add a final
+parameter.
+
+To add or remove parameters other than the final one, you must do it in
+stages: (1) declare a variant function f' with a different name and the
+desired parameters; (2) use eg to transform calls to f into calls to f',
+changing the arguments as needed; (3) change the declaration of f to
+match f'; (4) use eg to rename f' to f in all calls; (5) delete f'.
 `
 
 // TODO(adonovan): allow the tool to be invoked using relative package
@@ -113,7 +133,7 @@ Dot imports are forbidden in the template.
 // TODO(adonovan): expand upon the above documentation as an HTML page.
 
 // TODO(adonovan): eliminate dependency on loader.PackageInfo.
-// Move its ObjectOf/IsType/TypeOf methods into go/types.
+// Move its TypeOf method into go/types.
 
 // A Transformer represents a single example-based transformation.
 type Transformer struct {
@@ -244,9 +264,10 @@ func NewTransformer(fset *token.FileSet, template *loader.PackageInfo, verbose b
 	// TODO reject dot-imports in pattern
 	ast.Inspect(after, func(n ast.Node) bool {
 		if n, ok := n.(*ast.SelectorExpr); ok {
-			sel := tr.info.Selections[n]
-			if sel.Kind() == types.PackageObj {
-				tr.importedObjs[sel.Obj()] = n
+			if _, ok := tr.info.Selections[n]; !ok {
+				// qualified ident
+				obj := tr.info.Uses[n.Sel]
+				tr.importedObjs[obj] = n
 				return false // prune
 			}
 		}

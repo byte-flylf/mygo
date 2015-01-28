@@ -31,11 +31,31 @@ For example:
 package main
 
 import (
+	"flag"
 	"go/ast"
 	"go/token"
 
-	"code.google.com/p/go.tools/go/types"
+	"golang.org/x/tools/go/types"
 )
+
+var strictShadowing = flag.Bool("shadowstrict", false, "whether to be strict about shadowing; can be noisy")
+
+func init() {
+	register("shadow",
+		"check for shadowed variables (experimental; must be set explicitly)",
+		checkShadow,
+		assignStmt, genDecl)
+	experimental["shadow"] = true
+}
+
+func checkShadow(f *File, node ast.Node) {
+	switch n := node.(type) {
+	case *ast.AssignStmt:
+		checkShadowAssignment(f, n)
+	case *ast.GenDecl:
+		checkShadowDecl(f, n)
+	}
+}
 
 // Span stores the minimum range of byte positions in the file in which a
 // given variable (types.Object) is mentioned. It is lexically defined: it spans
@@ -90,10 +110,7 @@ func (pkg *Package) growSpan(ident *ast.Ident, obj types.Object) {
 }
 
 // checkShadowAssignment checks for shadowing in a short variable declaration.
-func (f *File) checkShadowAssignment(a *ast.AssignStmt) {
-	if !vet("shadow") {
-		return
-	}
+func checkShadowAssignment(f *File, a *ast.AssignStmt) {
 	if a.Tok != token.DEFINE {
 		return
 	}
@@ -106,7 +123,7 @@ func (f *File) checkShadowAssignment(a *ast.AssignStmt) {
 			f.Badf(expr.Pos(), "invalid AST: short variable declaration of non-identifier")
 			return
 		}
-		f.checkShadowing(ident)
+		checkShadowing(f, ident)
 	}
 }
 
@@ -163,10 +180,7 @@ func (f *File) idiomaticRedecl(d *ast.ValueSpec) bool {
 }
 
 // checkShadowDecl checks for shadowing in a general variable declaration.
-func (f *File) checkShadowDecl(d *ast.GenDecl) {
-	if !vet("shadow") {
-		return
-	}
+func checkShadowDecl(f *File, d *ast.GenDecl) {
 	if d.Tok != token.VAR {
 		return
 	}
@@ -182,13 +196,13 @@ func (f *File) checkShadowDecl(d *ast.GenDecl) {
 			return
 		}
 		for _, ident := range valueSpec.Names {
-			f.checkShadowing(ident)
+			checkShadowing(f, ident)
 		}
 	}
 }
 
 // checkShadowing checks whether the identifier shadows an identifier in an outer scope.
-func (f *File) checkShadowing(ident *ast.Ident) {
+func checkShadowing(f *File, ident *ast.Ident) {
 	if ident.Name == "_" {
 		// Can't shadow the blank identifier.
 		return
@@ -198,23 +212,23 @@ func (f *File) checkShadowing(ident *ast.Ident) {
 		return
 	}
 	// obj.Parent.Parent is the surrounding scope. If we can find another declaration
-	// starting from there, we have a shadowed variable.
-	shadowed := obj.Parent().Parent().LookupParent(obj.Name())
+	// starting from there, we have a shadowed identifier.
+	_, shadowed := obj.Parent().Parent().LookupParent(obj.Name())
 	if shadowed == nil {
 		return
 	}
-	// Don't complain if it's shadowing a universe-declared variable; that's fine.
+	// Don't complain if it's shadowing a universe-declared identifier; that's fine.
 	if shadowed.Parent() == types.Universe {
 		return
 	}
 	if *strictShadowing {
-		// The shadowed variable must appear before this one to be an instance of shadowing.
+		// The shadowed identifier must appear before this one to be an instance of shadowing.
 		if shadowed.Pos() > ident.Pos() {
 			return
 		}
 	} else {
-		// Don't complain if the span of validity of the shadowed variable doesn't include
-		// the shadowing variable.
+		// Don't complain if the span of validity of the shadowed identifier doesn't include
+		// the shadowing identifier.
 		span, ok := f.pkg.spans[shadowed]
 		if !ok {
 			f.Badf(ident.Pos(), "internal error: no range for %s", ident.Name)
@@ -224,7 +238,7 @@ func (f *File) checkShadowing(ident *ast.Ident) {
 			return
 		}
 	}
-	// Don't complain if the types differ: that implies the programmer really wants two variables.
+	// Don't complain if the types differ: that implies the programmer really wants two different things.
 	if types.Identical(obj.Type(), shadowed.Type()) {
 		f.Badf(ident.Pos(), "declaration of %s shadows declaration at %s", obj.Name(), f.loc(shadowed.Pos()))
 	}

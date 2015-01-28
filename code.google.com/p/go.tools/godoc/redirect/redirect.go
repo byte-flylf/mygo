@@ -28,6 +28,8 @@ func Register(mux *http.ServeMux) {
 	for path, redirect := range redirects {
 		mux.Handle(path, Handler(redirect))
 	}
+	// NB: /src/pkg (sans trailing slash) is the index of packages.
+	http.HandleFunc("/src/pkg/", srcPkgHandler)
 }
 
 func handlePathRedirects(mux *http.ServeMux, redirects map[string]string, prefix string) {
@@ -84,8 +86,8 @@ var redirects = map[string]string{
 	"/build":      "http://build.golang.org",
 	"/change":     "https://code.google.com/p/go/source/list",
 	"/cl":         "https://gocodereview.appspot.com/",
-	"/cmd/godoc/": "http://godoc.org/code.google.com/p/go.tools/cmd/godoc/",
-	"/cmd/vet/":   "http://godoc.org/code.google.com/p/go.tools/cmd/vet/",
+	"/cmd/godoc/": "http://godoc.org/golang.org/x/tools/cmd/godoc/",
+	"/cmd/vet/":   "http://godoc.org/golang.org/x/tools/cmd/vet/",
 	"/issue":      "https://code.google.com/p/go/issues",
 	"/issue/new":  "https://code.google.com/p/go/issues/entry",
 	"/issues":     "https://code.google.com/p/go/issues",
@@ -127,6 +129,7 @@ var prefixHelpers = map[string]string{
 	"cl":     "https://codereview.appspot.com/",
 	"issue":  "https://code.google.com/p/go/issues/detail?id=",
 	"play":   "http://play.golang.org/",
+	"review": "https://go-review.googlesource.com/#/q/",
 	"talks":  "http://talks.golang.org/",
 	"wiki":   "https://code.google.com/p/go-wiki/wiki/",
 }
@@ -154,4 +157,11 @@ func PrefixHandler(prefix, baseURL string) http.Handler {
 		target := baseURL + id
 		http.Redirect(w, r, target, http.StatusFound)
 	})
+}
+
+// Redirect requests from the old "/src/pkg/foo" to the new "/src/foo".
+// See http://golang.org/s/go14nopkg
+func srcPkgHandler(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = "/src/" + r.URL.Path[len("/src/pkg/"):]
+	http.Redirect(w, r, r.URL.String(), http.StatusMovedPermanently)
 }

@@ -19,8 +19,8 @@ import (
 	"strings"
 	"text/scanner"
 
-	"code.google.com/p/go.tools/go/exact"
-	"code.google.com/p/go.tools/go/types"
+	"golang.org/x/tools/go/exact"
+	"golang.org/x/tools/go/types"
 )
 
 // debugging/development support
@@ -598,7 +598,9 @@ func (p *parser) parseInterfaceType() types.Type {
 	}
 	p.expect('}')
 
-	return types.NewInterface(methods, nil)
+	// Complete requires the type's embedded interfaces to be fully defined,
+	// but we do not define any
+	return types.NewInterface(methods, nil).Complete()
 }
 
 // ChanType = ( "chan" [ "<-" ] | "<-" "chan" ) Type .

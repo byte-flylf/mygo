@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"code.google.com/p/go.tools/go/loader"
-	"code.google.com/p/go.tools/go/ssa"
-	"code.google.com/p/go.tools/go/ssa/interp"
-	"code.google.com/p/go.tools/go/types"
+	"golang.org/x/tools/go/loader"
+	"golang.org/x/tools/go/ssa"
+	"golang.org/x/tools/go/ssa/interp"
+	"golang.org/x/tools/go/types"
 )
 
 // Each line contains a space-separated list of $GOROOT/test/
@@ -135,19 +135,23 @@ var gorootTestTests = []string{
 // These are files in go.tools/go/ssa/interp/testdata/.
 var testdataTests = []string{
 	"boundmeth.go",
+	"complit.go",
 	"coverage.go",
+	"defer.go",
 	"fieldprom.go",
 	"ifaceconv.go",
 	"ifaceprom.go",
 	"initorder.go",
 	"methprom.go",
 	"mrvchain.go",
+	"range.go",
 	"recover.go",
+	"static.go",
 	"callstack.go",
 }
 
-// These are files and packages in $GOROOT/src/pkg/.
-var gorootSrcPkgTests = []string{
+// These are files and packages in $GOROOT/src/.
+var gorootSrcTests = []string{
 	"encoding/ascii85",
 	"encoding/csv",
 	"encoding/hex",
@@ -204,7 +208,7 @@ func run(t *testing.T, dir, input string, success successPredicate) bool {
 		interp.CapturedOutput = nil
 	}()
 
-	hint = fmt.Sprintf("To dump SSA representation, run:\n%% go build code.google.com/p/go.tools/cmd/ssadump && ./ssadump -build=CFP %s\n", input)
+	hint = fmt.Sprintf("To dump SSA representation, run:\n%% go build golang.org/x/tools/cmd/ssadump && ./ssadump -build=CFP %s\n", input)
 
 	iprog, err := conf.Load()
 	if err != nil {
@@ -218,6 +222,9 @@ func run(t *testing.T, dir, input string, success successPredicate) bool {
 	var mainPkg *ssa.Package
 	var initialPkgs []*ssa.Package
 	for _, info := range iprog.InitialPackages() {
+		if info.Pkg.Path() == "runtime" {
+			continue // not an initial package
+		}
 		p := prog.Package(info.Pkg)
 		initialPkgs = append(initialPkgs, p)
 		if mainPkg == nil && p.Func("main") != nil {
@@ -240,7 +247,7 @@ func run(t *testing.T, dir, input string, success successPredicate) bool {
 	var out bytes.Buffer
 	interp.CapturedOutput = &out
 
-	hint = fmt.Sprintf("To trace execution, run:\n%% go build code.google.com/p/go.tools/cmd/ssadump && ./ssadump -build=C -run --interp=T %s\n", input)
+	hint = fmt.Sprintf("To trace execution, run:\n%% go build golang.org/x/tools/cmd/ssadump && ./ssadump -build=C -run --interp=T %s\n", input)
 	exitCode := interp.Interpret(mainPkg, 0, &types.StdSizes{8, 8}, inputs[0], []string{})
 
 	// The definition of success varies with each file.
@@ -311,8 +318,8 @@ func TestGorootTest(t *testing.T) {
 			failures = append(failures, input)
 		}
 	}
-	for _, input := range gorootSrcPkgTests {
-		if !run(t, filepath.Join(build.Default.GOROOT, "src/pkg")+slash, input, success) {
+	for _, input := range gorootSrcTests {
+		if !run(t, filepath.Join(build.Default.GOROOT, "src")+slash, input, success) {
 			failures = append(failures, input)
 		}
 	}

@@ -9,9 +9,9 @@ package typeutil
 import (
 	"bytes"
 	"fmt"
-	"unsafe"
+	"reflect"
 
-	"code.google.com/p/go.tools/go/types"
+	"golang.org/x/tools/go/types"
 )
 
 // Map is a hash-table-based mapping from types (types.Type) to
@@ -295,7 +295,7 @@ func (h Hasher) hashFor(t types.Type) uint32 {
 
 	case *types.Named:
 		// Not safe with a copying GC; objects may move.
-		return uint32(uintptr(unsafe.Pointer(t.Obj())))
+		return uint32(reflect.ValueOf(t.Obj()).Pointer())
 
 	case *types.Tuple:
 		return h.hashTuple(t)

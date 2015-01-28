@@ -11,8 +11,8 @@ import (
 	"io"
 	"math/big"
 
-	"code.google.com/p/go.tools/go/exact"
-	"code.google.com/p/go.tools/go/types"
+	"golang.org/x/tools/go/exact"
+	"golang.org/x/tools/go/types"
 )
 
 // TODO(gri) use tabwriter for alignment?
@@ -21,6 +21,7 @@ func print(w io.Writer, pkg *types.Package, filter func(types.Object) bool) {
 	var p printer
 	p.pkg = pkg
 	p.printPackage(pkg, filter)
+	p.printGccgoExtra(pkg)
 	io.Copy(w, &p.buf)
 }
 

@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"go/token"
 
-	"code.google.com/p/go.tools/go/ssa"
+	"golang.org/x/tools/go/ssa"
 )
 
 type cgnode struct {
@@ -18,6 +18,17 @@ type cgnode struct {
 	obj        nodeid      // start of this contour's object block
 	sites      []*callsite // ordered list of callsites within this function
 	callersite *callsite   // where called from, if known; nil for shared contours
+}
+
+// contour returns a description of this node's contour.
+func (n *cgnode) contour() string {
+	if n.callersite == nil {
+		return "shared contour"
+	}
+	if n.callersite.instr != nil {
+		return fmt.Sprintf("as called from %s", n.callersite.instr.Parent())
+	}
+	return fmt.Sprintf("as called from intrinsic (targets=n%d)", n.callersite.targets)
 }
 
 func (n *cgnode) String() string {

@@ -1,4 +1,6 @@
 // The eg command performs example-based refactoring.
+// For documentation, run the command, or see Help in
+// code.google.com/p/go.tools/refactor/eg.
 package main
 
 import (
@@ -8,13 +10,15 @@ import (
 	"go/printer"
 	"go/token"
 	"os"
-	"path/filepath"
+	"os/exec"
+	"strings"
 
-	"code.google.com/p/go.tools/go/loader"
-	"code.google.com/p/go.tools/refactor/eg"
+	"golang.org/x/tools/go/loader"
+	"golang.org/x/tools/refactor/eg"
 )
 
 var (
+	beforeeditFlag = flag.String("beforeedit", "", "A command to exec before each file is edited (e.g. chmod, checkout).  Whitespace delimits argument words.  The string '{}' is replaced by the file name.")
 	helpFlag       = flag.Bool("help", false, "show detailed help message")
 	templateFlag   = flag.String("t", "", "template.go file specifying the refactoring")
 	transitiveFlag = flag.Bool("transitive", false, "apply refactoring to all dependencies too")
@@ -32,7 +36,7 @@ Usage: eg -t template.go [-w] [-transitive] <args>...
 
 func main() {
 	if err := doMain(); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: %s.\n", filepath.Base(os.Args[0]), err)
+		fmt.Fprintf(os.Stderr, "eg: %s\n", err)
 		os.Exit(1)
 	}
 }
@@ -103,10 +107,27 @@ func doMain() error {
 				continue
 			}
 			filename := iprog.Fset.File(file.Pos()).Name()
-			fmt.Fprintf(os.Stderr, "=== %s (%d matches):\n", filename, n)
+			fmt.Fprintf(os.Stderr, "=== %s (%d matches)\n", filename, n)
 			if *writeFlag {
+				// Run the before-edit command (e.g. "chmod +w",  "checkout") if any.
+				if *beforeeditFlag != "" {
+					args := strings.Fields(*beforeeditFlag)
+					// Replace "{}" with the filename, like find(1).
+					for i := range args {
+						if i > 0 {
+							args[i] = strings.Replace(args[i], "{}", filename, -1)
+						}
+					}
+					cmd := exec.Command(args[0], args[1:]...)
+					cmd.Stdout = os.Stdout
+					cmd.Stderr = os.Stderr
+					if err := cmd.Run(); err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: edit hook %q failed (%s)\n",
+							args, err)
+					}
+				}
 				if err := eg.WriteAST(iprog.Fset, filename, file); err != nil {
-					fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+					fmt.Fprintf(os.Stderr, "eg: %s\n", err)
 					hadErrors = true
 				}
 			} else {

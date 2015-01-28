@@ -7,12 +7,15 @@
 package build
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/md5"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -20,9 +23,11 @@ import (
 	"appengine/datastore"
 
 	"cache"
+	"key"
 )
 
 const commitsPerPage = 30
+const watcherVersion = 2
 
 // commitHandler retrieves commit data or records a new commit.
 //
@@ -41,8 +46,32 @@ func commitHandler(r *http.Request) (interface{}, error) {
 	if r.Method == "GET" {
 		com.PackagePath = r.FormValue("packagePath")
 		com.Hash = r.FormValue("hash")
-		if err := datastore.Get(c, com.Key(c), com); err != nil {
+		err := datastore.Get(c, com.Key(c), com)
+		if com.Num == 0 && com.Desc == "" {
+			// Perf builder might have written an incomplete Commit.
+			// Pretend it doesn't exist, so that we can get complete details.
+			err = datastore.ErrNoSuchEntity
+		}
+		if err != nil {
+			if err == datastore.ErrNoSuchEntity {
+				// This error string is special.
+				// The commit watcher expects it.
+				// Do not change it.
+				return nil, errors.New("Commit not found")
+			}
 			return nil, fmt.Errorf("getting Commit: %v", err)
+		}
+		if com.Num == 0 {
+			// Corrupt state which shouldn't happen but does.
+			// Return an error so builders' commit loops will
+			// be willing to retry submitting this commit.
+			return nil, errors.New("in datastore with zero Num")
+		}
+		if com.Desc == "" || com.User == "" {
+			// Also shouldn't happen, but at least happened
+			// once on a single commit when trying to fix data
+			// in the datastore viewer UI?
+			return nil, errors.New("missing field")
 		}
 		// Strip potentially large and unnecessary fields.
 		com.ResultData = nil
@@ -56,10 +85,28 @@ func commitHandler(r *http.Request) (interface{}, error) {
 		return nil, errors.New("can only POST commits with master key")
 	}
 
+	// For now, the commit watcher doesn't support gccgo,
+	// so only do this check for Go commits.
+	// TODO(adg,cmang): remove this check when gccgo is supported.
+	if dashboardForRequest(r) == goDash {
+		v, _ := strconv.Atoi(r.FormValue("version"))
+		if v != watcherVersion {
+			return nil, fmt.Errorf("rejecting POST from commit watcher; need version %v", watcherVersion)
+		}
+	}
+
 	// POST request
-	defer r.Body.Close()
-	if err := json.NewDecoder(r.Body).Decode(com); err != nil {
-		return nil, fmt.Errorf("decoding Body: %v", err)
+	body, err := ioutil.ReadAll(r.Body)
+	r.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("reading Body: %v", err)
+	}
+	if !bytes.Contains(body, needsBenchmarkingBytes) {
+		c.Warningf("old builder detected at %v", r.RemoteAddr)
+		return nil, fmt.Errorf("rejecting old builder request, body does not contain %s: %q", needsBenchmarkingBytes, body)
+	}
+	if err := json.Unmarshal(body, com); err != nil {
+		return nil, fmt.Errorf("unmarshaling body %q: %v", body, err)
 	}
 	com.Desc = limitStringLength(com.Desc, maxDatastoreStringLen)
 	if err := com.Valid(); err != nil {
@@ -72,30 +119,60 @@ func commitHandler(r *http.Request) (interface{}, error) {
 	return nil, datastore.RunInTransaction(c, tx, nil)
 }
 
+var needsBenchmarkingBytes = []byte(`"NeedsBenchmarking"`)
+
 // addCommit adds the Commit entity to the datastore and updates the tip Tag.
 // It must be run inside a datastore transaction.
 func addCommit(c appengine.Context, com *Commit) error {
-	var tc Commit // temp value so we don't clobber com
-	err := datastore.Get(c, com.Key(c), &tc)
-	if err != datastore.ErrNoSuchEntity {
-		// if this commit is already in the datastore, do nothing
-		if err == nil {
-			return nil
-		}
+	var ec Commit // existing commit
+	isUpdate := false
+	err := datastore.Get(c, com.Key(c), &ec)
+	if err != nil && err != datastore.ErrNoSuchEntity {
 		return fmt.Errorf("getting Commit: %v", err)
 	}
-	// get the next commit number
+	if err == nil {
+		// Commit already in the datastore. Any fields different?
+		// If not, don't do anything.
+		changes := (com.Num != 0 && com.Num != ec.Num) ||
+			com.ParentHash != ec.ParentHash ||
+			com.Desc != ec.Desc ||
+			com.User != ec.User ||
+			!com.Time.Equal(ec.Time)
+		if !changes {
+			return nil
+		}
+		ec.ParentHash = com.ParentHash
+		ec.Desc = com.Desc
+		ec.User = com.User
+		if !com.Time.IsZero() {
+			ec.Time = com.Time
+		}
+		if com.Num != 0 {
+			ec.Num = com.Num
+		}
+		isUpdate = true
+		com = &ec
+	}
 	p, err := GetPackage(c, com.PackagePath)
 	if err != nil {
 		return fmt.Errorf("GetPackage: %v", err)
 	}
-	com.Num = p.NextNum
-	p.NextNum++
-	if _, err := datastore.Put(c, p.Key(c), p); err != nil {
-		return fmt.Errorf("putting Package: %v", err)
+	if com.Num == 0 {
+		// get the next commit number
+		com.Num = p.NextNum
+		p.NextNum++
+		if _, err := datastore.Put(c, p.Key(c), p); err != nil {
+			return fmt.Errorf("putting Package: %v", err)
+		}
+	} else if com.Num >= p.NextNum {
+		p.NextNum = com.Num + 1
+		if _, err := datastore.Put(c, p.Key(c), p); err != nil {
+			return fmt.Errorf("putting Package: %v", err)
+		}
 	}
-	// if this isn't the first Commit test the parent commit exists
-	if com.Num > 0 {
+	// if this isn't the first Commit test the parent commit exists.
+	// The all zeros are returned by hg's p1node template for parentless commits.
+	if com.ParentHash != "" && com.ParentHash != "0000000000000000000000000000000000000000" && com.ParentHash != "0000" {
 		n, err := datastore.NewQuery("Commit").
 			Filter("Hash =", com.ParentHash).
 			Ancestor(p.Key(c)).
@@ -108,15 +185,15 @@ func addCommit(c appengine.Context, com *Commit) error {
 		}
 	}
 	// update the tip Tag if this is the Go repo and this isn't on a release branch
-	if p.Path == "" && !strings.HasPrefix(com.Desc, "[release-branch") {
+	if p.Path == "" && !strings.HasPrefix(com.Desc, "[") && !isUpdate {
 		t := &Tag{Kind: "tip", Hash: com.Hash}
 		if _, err = datastore.Put(c, t.Key(c), t); err != nil {
 			return fmt.Errorf("putting Tag: %v", err)
 		}
 	}
 	// put the Commit
-	if _, err = datastore.Put(c, com.Key(c), com); err != nil {
-		return fmt.Errorf("putting Commit: %v", err)
+	if err = putCommit(c, com); err != nil {
+		return err
 	}
 	if com.NeedsBenchmarking {
 		// add to CommitRun
@@ -378,7 +455,7 @@ func buildPerfTodo(c appengine.Context, builder string) (*PerfTodo, error) {
 				nums = append(nums, num)
 			}
 		}
-		todo.CommitNums = orderPrefTodo(nums)
+		todo.CommitNums = orderPerfTodo(nums)
 		todo.CommitNums = append(todo.CommitNums, releaseNums...)
 		if _, err = datastore.Put(c, todo.Key(c), todo); err != nil {
 			return fmt.Errorf("putting PerfTodo: %v", err)
@@ -532,7 +609,8 @@ func perfResultHandler(r *http.Request) (interface{}, error) {
 }
 
 // addPerfResult creates PerfResult and updates Commit, PerfTodo,
-// PerfMetricRun and PerfConfig. Must be executed within a transaction.
+// PerfMetricRun and PerfConfig.
+// MUST be called from inside a transaction.
 func addPerfResult(c appengine.Context, r *http.Request, req *PerfRequest) error {
 	// check Package exists
 	p, err := GetPackage(c, "")
@@ -599,6 +677,7 @@ func addPerfResult(c appengine.Context, r *http.Request, req *PerfRequest) error
 	return nil
 }
 
+// MUST be called from inside a transaction.
 func checkPerfChanges(c appengine.Context, r *http.Request, com *Commit, builder string, res *PerfResult) error {
 	pc, err := GetPerfConfig(c, r)
 	if err != nil {
@@ -789,12 +868,12 @@ func validKey(c appengine.Context, key, builder string) bool {
 	return isMasterKey(c, key) || key == builderKey(c, builder)
 }
 
-func isMasterKey(c appengine.Context, key string) bool {
-	return appengine.IsDevAppServer() || key == secretKey(c)
+func isMasterKey(c appengine.Context, k string) bool {
+	return appengine.IsDevAppServer() || k == key.Secret(c)
 }
 
 func builderKey(c appengine.Context, builder string) string {
-	h := hmac.New(md5.New, []byte(secretKey(c)))
+	h := hmac.New(md5.New, []byte(key.Secret(c)))
 	h.Write([]byte(builder))
 	return fmt.Sprintf("%x", h.Sum(nil))
 }

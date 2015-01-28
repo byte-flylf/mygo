@@ -13,22 +13,23 @@ import (
 	"runtime"
 	"runtime/pprof"
 
-	"code.google.com/p/go.tools/go/loader"
-	"code.google.com/p/go.tools/go/ssa"
-	"code.google.com/p/go.tools/go/ssa/interp"
-	"code.google.com/p/go.tools/go/types"
+	"golang.org/x/tools/go/loader"
+	"golang.org/x/tools/go/ssa"
+	"golang.org/x/tools/go/ssa/interp"
+	"golang.org/x/tools/go/types"
 )
 
 var buildFlag = flag.String("build", "", `Options controlling the SSA builder.
 The value is a sequence of zero or more of these letters:
 C	perform sanity [C]hecking of the SSA form.
 D	include [D]ebug info for every function.
-P	log [P]ackage inventory.
-F	log [F]unction SSA code.
+P	print [P]ackage inventory.
+F	print [F]unction SSA code.
 S	log [S]ource locations as SSA builder progresses.
 G	use binary object files from gc to provide imports (no code).
 L	build distinct packages seria[L]ly instead of in parallel.
 N	build [N]aive SSA form: don't replace local loads/stores with registers.
+I	build bare [I]nit functions: no init guards or calls to dependent inits.
 `)
 
 var testFlag = flag.Bool("test", false, "Loads test code (*_test.go) for imported packages.")
@@ -73,7 +74,7 @@ func init() {
 
 func main() {
 	if err := doMain(); err != nil {
-		fmt.Fprintf(os.Stderr, "ssadump: %s.\n", err)
+		fmt.Fprintf(os.Stderr, "ssadump: %s\n", err)
 		os.Exit(1)
 	}
 }
@@ -104,9 +105,9 @@ func doMain() error {
 		case 'D':
 			mode |= ssa.GlobalDebug
 		case 'P':
-			mode |= ssa.LogPackages | ssa.BuildSerially
+			mode |= ssa.PrintPackages
 		case 'F':
-			mode |= ssa.LogFunctions | ssa.BuildSerially
+			mode |= ssa.PrintFunctions
 		case 'S':
 			mode |= ssa.LogSource | ssa.BuildSerially
 		case 'C':
@@ -117,6 +118,8 @@ func doMain() error {
 			conf.SourceImports = false
 		case 'L':
 			mode |= ssa.BuildSerially
+		case 'I':
+			mode |= ssa.BareInits
 		default:
 			return fmt.Errorf("unknown -build option: '%c'", c)
 		}

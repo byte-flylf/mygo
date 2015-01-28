@@ -20,9 +20,10 @@ var knownTags = map[string]string{
 	"go1":   "0051c7442fed9c888de6617fa9239a913904d96e",
 	"go1.1": "d29da2ced72ba2cf48ed6a8f1ec4abc01e4c5bf1",
 	"go1.2": "b1edf8faa5d6cbc50c6515785df9df9c19296564",
+	"go1.3": "f153208c0a0e306bfca14f71ef11f09859ccabc8",
 }
 
-var lastRelease = "go1.2"
+var lastRelease = "go1.3"
 
 func splitBench(benchProcs string) (string, int) {
 	ss := strings.Split(benchProcs, "-")
@@ -113,14 +114,12 @@ func (rc *PerfResultCache) Next(commitNum int) (*PerfResult, error) {
 			}
 		}
 	}
-	//rc.c.Errorf("PerfResultCache.Next: num=%v next=%v", commitNum, next)
 	if next != -1 {
 		return rc.results[next], nil
 	}
 	// Fetch next result from datastore.
 	res := new(PerfResult)
 	_, err := rc.iter.Next(res)
-	//rc.c.Errorf("PerfResultCache.Next: fetched %v %+v", err, res)
 	if err == datastore.Done {
 		return nil, nil
 	}
@@ -177,12 +176,12 @@ func (rc *PerfResultCache) NextForComparison(commitNum int, builder string) (*Pe
 }
 
 type PerfChange struct {
-	builder string
-	bench   string
-	metric  string
-	old     uint64
-	new     uint64
-	diff    float64
+	Builder string
+	Bench   string
+	Metric  string
+	Old     uint64
+	New     uint64
+	Diff    float64
 }
 
 func significantPerfChanges(pc *PerfConfig, builder string, prevRes, res *PerfResult) (changes []*PerfChange) {
@@ -211,31 +210,34 @@ func significantPerfChanges(pc *PerfConfig, builder string, prevRes, res *PerfRe
 				if isNoise(diff, noise) {
 					continue
 				}
-				ch := &PerfChange{builder: builder, bench: benchmark, metric: metric, old: val0, new: val, diff: diff}
+				ch := &PerfChange{Builder: builder, Bench: benchmark, Metric: metric, Old: val0, New: val, Diff: diff}
 				changes = append(changes, ch)
 			}
 		}
 	}
 	// Then, strip non-repeatable changes (flakes).
-	// The hypothesis is that a real change must show up with at least
-	// 2 different values of GOMAXPROCS.
+	// The hypothesis is that a real change must show up with the majority of GOMAXPROCS values.
+	majority := len(pc.ProcList(builder))/2 + 1
 	cnt := make(map[string]int)
 	for _, ch := range changes {
-		b, _ := splitBench(ch.bench)
-		name := b + "|" + ch.metric
-		inc := 1
-		if ch.diff < 0 {
-			inc = -1
+		b, _ := splitBench(ch.Bench)
+		name := b + "|" + ch.Metric
+		if ch.Diff < 0 {
+			name += "--"
 		}
-		cnt[name] = cnt[name] + inc
+		cnt[name] = cnt[name] + 1
 	}
 	for i := 0; i < len(changes); i++ {
 		ch := changes[i]
-		b, _ := splitBench(ch.bench)
-		name := b + "|" + ch.metric
-		if n := cnt[name]; n <= -2 || n >= 2 {
+		b, _ := splitBench(ch.Bench)
+		name := b + "|" + ch.Metric
+		if cnt[name] >= majority {
 			continue
 		}
+		if cnt[name+"--"] >= majority {
+			continue
+		}
+		// Remove flake.
 		last := len(changes) - 1
 		changes[i] = changes[last]
 		changes = changes[:last]
@@ -244,14 +246,14 @@ func significantPerfChanges(pc *PerfConfig, builder string, prevRes, res *PerfRe
 	return changes
 }
 
-// orderPrefTodo reorders commit nums for benchmarking todo.
+// orderPerfTodo reorders commit nums for benchmarking todo.
 // The resulting order is somewhat tricky. We want 2 things:
 // 1. benchmark sequentially backwards (this provides information about most
 // recent changes, and allows to estimate noise levels)
 // 2. benchmark old commits in "scatter" order (this allows to quickly gather
 // brief information about thousands of old commits)
 // So this function interleaves the two orders.
-func orderPrefTodo(nums []int) []int {
+func orderPerfTodo(nums []int) []int {
 	sort.Ints(nums)
 	n := len(nums)
 	pow2 := uint32(0) // next power-of-two that is >= n

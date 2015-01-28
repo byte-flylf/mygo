@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 // This program takes an HTML file and outputs a corresponding article file in
-// present format. See: code.google.com/p/go.tools/present
+// present format. See: golang.org/x/tools/present
 package main
 
 import (
@@ -14,12 +14,13 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
 
-	"code.google.com/p/go.net/html"
-	"code.google.com/p/go.net/html/atom"
+	"golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 )
 
 func main() {
@@ -210,7 +211,23 @@ func text(n *html.Node) string {
 			indent(&buf, childText(n))
 			buf.WriteByte('\n')
 		case atom.A:
-			fmt.Fprintf(&buf, "[[%s][%s]]", attr(n, "href"), childText(n))
+			href, text := attr(n, "href"), childText(n)
+			// Skip links with no text.
+			if strings.TrimSpace(text) == "" {
+				break
+			}
+			// Don't emit empty links.
+			if strings.TrimSpace(href) == "" {
+				buf.WriteString(text)
+				break
+			}
+			// Use original url for Google Docs redirections.
+			if u, err := url.Parse(href); err != nil {
+				log.Println("parsing url %q: %v", href, err)
+			} else if u.Host == "www.google.com" && u.Path == "/url" {
+				href = u.Query().Get("q")
+			}
+			fmt.Fprintf(&buf, "[[%s][%s]]", href, text)
 		case atom.Code:
 			buf.WriteString(highlight(n, "`"))
 		case atom.B:
@@ -233,6 +250,7 @@ func text(n *html.Node) string {
 				}
 				fmt.Fprintf(&buf, "\n.iframe %s 540 304\n", u)
 			}
+		case atom.Title:
 		default:
 			return true
 		}

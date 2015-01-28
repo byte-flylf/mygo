@@ -10,19 +10,34 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
+	"go/token"
 
-	"code.google.com/p/go.tools/go/types"
+	"golang.org/x/tools/go/types"
 )
 
-// checkCopyLocks checks whether a function might
+func init() {
+	register("copylocks",
+		"check that locks are not passed by value",
+		checkCopyLocks,
+		funcDecl, rangeStmt)
+}
+
+// checkCopyLocks checks whether node might
+// inadvertently copy a lock.
+func checkCopyLocks(f *File, node ast.Node) {
+	switch node := node.(type) {
+	case *ast.RangeStmt:
+		checkCopyLocksRange(f, node)
+	case *ast.FuncDecl:
+		checkCopyLocksFunc(f, node)
+	}
+}
+
+// checkCopyLocksFunc checks whether a function might
 // inadvertently copy a lock, by checking whether
 // its receiver, parameters, or return values
 // are locks.
-func (f *File) checkCopyLocks(d *ast.FuncDecl) {
-	if !vet("copylocks") {
-		return
-	}
-
+func checkCopyLocksFunc(f *File, d *ast.FuncDecl) {
 	if d.Recv != nil && len(d.Recv.List) > 0 {
 		expr := d.Recv.List[0].Type
 		if path := lockPath(f.pkg.typesPkg, f.pkg.types[expr].Type); path != nil {
@@ -49,9 +64,48 @@ func (f *File) checkCopyLocks(d *ast.FuncDecl) {
 	}
 }
 
+// checkCopyLocksRange checks whether a range statement
+// might inadvertently copy a lock by checking whether
+// any of the range variables are locks.
+func checkCopyLocksRange(f *File, r *ast.RangeStmt) {
+	checkCopyLocksRangeVar(f, r.Tok, r.Key)
+	checkCopyLocksRangeVar(f, r.Tok, r.Value)
+}
+
+func checkCopyLocksRangeVar(f *File, rtok token.Token, e ast.Expr) {
+	if e == nil {
+		return
+	}
+	id, isId := e.(*ast.Ident)
+	if isId && id.Name == "_" {
+		return
+	}
+
+	var typ types.Type
+	if rtok == token.DEFINE {
+		if !isId {
+			return
+		}
+		obj := f.pkg.defs[id]
+		if obj == nil {
+			return
+		}
+		typ = obj.Type()
+	} else {
+		typ = f.pkg.types[e].Type
+	}
+
+	if typ == nil {
+		return
+	}
+	if path := lockPath(f.pkg.typesPkg, typ); path != nil {
+		f.Badf(e.Pos(), "range var %s copies Lock: %v", f.gofmt(e), path)
+	}
+}
+
 type typePath []types.Type
 
-// pathString pretty-prints a typePath.
+// String pretty-prints a typePath.
 func (path typePath) String() string {
 	n := len(path)
 	var buf bytes.Buffer

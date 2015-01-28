@@ -41,7 +41,7 @@ var testEntityKinds = []string{
 	"Log",
 }
 
-const testPkg = "code.google.com/p/go.test"
+const testPkg = "golang.org/x/test"
 
 var testPackage = &Package{Name: "Test", Kind: "subrepo", Path: testPkg}
 
@@ -72,7 +72,7 @@ var testRequests = []struct {
 	res  interface{}
 }{
 	// Packages
-	{"/packages?kind=subrepo", nil, nil, []*Package{testPackage}},
+	{"/packages", url.Values{"kind": {"subrepo"}}, nil, []*Package{testPackage}},
 
 	// Go repo
 	{"/commit", nil, tCommit("0001", "0000", "", true), nil},
@@ -93,6 +93,7 @@ var testRequests = []struct {
 	{"/result", nil, &Result{Builder: "windows-386", Hash: "0001", OK: true}, nil},
 	{"/result", nil, &Result{Builder: "windows-amd64", Hash: "0001", OK: true}, nil},
 	{"/result", nil, &Result{Builder: "windows-amd64-race", Hash: "0001", OK: true}, nil},
+	{"/result", nil, &Result{Builder: "linux-amd64-temp", Hash: "0001", OK: true}, nil},
 
 	// multiple builders
 	{"/todo", url.Values{"kind": {"build-go-commit"}, "builder": {"linux-amd64"}}, nil, &Todo{Kind: "build-go-commit", Data: &Commit{Hash: "0003"}}},
@@ -118,7 +119,7 @@ var testRequests = []struct {
 	{"/result", nil, &Result{Builder: "linux-386", Hash: "0003", OK: false, Log: "test"}, nil},
 
 	// non-Go repos
-	{"/commit", nil, tCommit("1001", "1000", testPkg, false), nil},
+	{"/commit", nil, tCommit("1001", "0000", testPkg, false), nil},
 	{"/commit", nil, tCommit("1002", "1001", testPkg, false), nil},
 	{"/commit", nil, tCommit("1003", "1002", testPkg, false), nil},
 	{"/todo", url.Values{"kind": {"build-package"}, "builder": {"linux-386"}, "packagePath": {testPkg}, "goHash": {"0001"}}, nil, &Todo{Kind: "build-package", Data: &Commit{Hash: "1003"}}},
@@ -144,8 +145,7 @@ var testRequests = []struct {
 	{"/result", nil, &Result{Builder: "linux-amd64", Hash: "0004", OK: true}, nil},
 	{"/todo", url.Values{"kind": {"build-go-commit", "benchmark-go-commit"}, "builder": {"linux-amd64"}}, nil, &Todo{Kind: "build-go-commit", Data: &Commit{Hash: "0002"}}},
 	{"/result", nil, &Result{Builder: "linux-amd64", Hash: "0002", OK: true}, nil},
-	{"/todo", url.Values{"kind": {"build-go-commit", "benchmark-go-commit"}, "builder": {"linux-amd64"}}, nil, &Todo{Kind: "build-go-commit", Data: &Commit{Hash: "0001"}}},
-	{"/result", nil, &Result{Builder: "linux-amd64", Hash: "0001", OK: true}, nil},
+	// drain sub-repo todos
 	{"/result", nil, &Result{PackagePath: testPkg, Builder: "linux-amd64", Hash: "1001", GoHash: "0005", OK: false}, nil},
 	{"/result", nil, &Result{PackagePath: testPkg, Builder: "linux-amd64", Hash: "1002", GoHash: "0005", OK: false}, nil},
 	{"/result", nil, &Result{PackagePath: testPkg, Builder: "linux-amd64", Hash: "1003", GoHash: "0005", OK: false}, nil},
@@ -189,10 +189,10 @@ var testRequests = []struct {
 	{"/perf-result", nil, &PerfRequest{Builder: "linux-amd64", Benchmark: "meta-done", Hash: "0007", OK: true}, nil},
 	{"/todo", url.Values{"kind": {"build-go-commit", "benchmark-go-commit"}, "builder": {"linux-amd64"}}, nil, &Todo{Kind: "benchmark-go-commit", Data: &Commit{Hash: "0006", PerfResults: []string{"http"}}}},
 	{"/perf-result", nil, &PerfRequest{Builder: "linux-amd64", Benchmark: "meta-done", Hash: "0006", OK: true}, nil},
-	{"/todo", url.Values{"kind": {"build-go-commit", "benchmark-go-commit"}, "builder": {"linux-amd64"}}, nil, &Todo{Kind: "benchmark-go-commit", Data: &Commit{Hash: "0003", PerfResults: []string{"http", "json"}}}},
-	{"/perf-result", nil, &PerfRequest{Builder: "linux-amd64", Benchmark: "meta-done", Hash: "0003", OK: true}, nil},
 	{"/todo", url.Values{"kind": {"build-go-commit", "benchmark-go-commit"}, "builder": {"linux-amd64"}}, nil, &Todo{Kind: "benchmark-go-commit", Data: &Commit{Hash: "0001", PerfResults: []string{"http"}}}},
 	{"/perf-result", nil, &PerfRequest{Builder: "linux-amd64", Benchmark: "meta-done", Hash: "0001", OK: true}, nil},
+	{"/todo", url.Values{"kind": {"build-go-commit", "benchmark-go-commit"}, "builder": {"linux-amd64"}}, nil, &Todo{Kind: "benchmark-go-commit", Data: &Commit{Hash: "0003", PerfResults: []string{"http", "json"}}}},
+	{"/perf-result", nil, &PerfRequest{Builder: "linux-amd64", Benchmark: "meta-done", Hash: "0003", OK: true}, nil},
 	{"/todo", url.Values{"kind": {"build-go-commit", "benchmark-go-commit"}, "builder": {"linux-amd64"}}, nil, nil},
 	// attach second builder
 	{"/todo", url.Values{"kind": {"build-go-commit", "benchmark-go-commit"}, "builder": {"linux-386"}}, nil, &Todo{Kind: "build-go-commit", Data: &Commit{Hash: "0007"}}},
@@ -207,10 +207,10 @@ var testRequests = []struct {
 	{"/perf-result", nil, &PerfRequest{Builder: "linux-386", Benchmark: "meta-done", Hash: "0007", OK: true}, nil},
 	{"/todo", url.Values{"kind": {"build-go-commit", "benchmark-go-commit"}, "builder": {"linux-386"}}, nil, &Todo{Kind: "benchmark-go-commit", Data: &Commit{Hash: "0006"}}},
 	{"/perf-result", nil, &PerfRequest{Builder: "linux-386", Benchmark: "meta-done", Hash: "0006", OK: true}, nil},
-	{"/todo", url.Values{"kind": {"build-go-commit", "benchmark-go-commit"}, "builder": {"linux-386"}}, nil, &Todo{Kind: "benchmark-go-commit", Data: &Commit{Hash: "0003"}}},
-	{"/perf-result", nil, &PerfRequest{Builder: "linux-386", Benchmark: "meta-done", Hash: "0003", OK: true}, nil},
 	{"/todo", url.Values{"kind": {"build-go-commit", "benchmark-go-commit"}, "builder": {"linux-386"}}, nil, &Todo{Kind: "benchmark-go-commit", Data: &Commit{Hash: "0001"}}},
 	{"/perf-result", nil, &PerfRequest{Builder: "linux-386", Benchmark: "meta-done", Hash: "0001", OK: true}, nil},
+	{"/todo", url.Values{"kind": {"build-go-commit", "benchmark-go-commit"}, "builder": {"linux-386"}}, nil, &Todo{Kind: "benchmark-go-commit", Data: &Commit{Hash: "0003"}}},
+	{"/perf-result", nil, &PerfRequest{Builder: "linux-386", Benchmark: "meta-done", Hash: "0003", OK: true}, nil},
 	{"/todo", url.Values{"kind": {"build-go-commit", "benchmark-go-commit"}, "builder": {"linux-386"}}, nil, nil},
 }
 
@@ -256,7 +256,9 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		url := "http://" + domain + t.path
 		if t.vals != nil {
-			url += "?" + t.vals.Encode()
+			url += "?" + t.vals.Encode() + "&version=2"
+		} else {
+			url += "?version=2"
 		}
 		req, err := http.NewRequest("POST", url, body)
 		if err != nil {

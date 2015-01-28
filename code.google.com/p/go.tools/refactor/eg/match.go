@@ -8,9 +8,9 @@ import (
 	"os"
 	"reflect"
 
-	"code.google.com/p/go.tools/go/exact"
-	"code.google.com/p/go.tools/go/loader"
-	"code.google.com/p/go.tools/go/types"
+	"golang.org/x/tools/go/exact"
+	"golang.org/x/tools/go/loader"
+	"golang.org/x/tools/go/types"
 )
 
 // matchExpr reports whether pattern x matches y.
@@ -35,10 +35,8 @@ func (tr *Transformer) matchExpr(x, y ast.Expr) bool {
 	y = unparen(y)
 
 	// Is x a wildcard?  (a reference to a 'before' parameter)
-	if x, ok := x.(*ast.Ident); ok && x != nil && tr.allowWildcards {
-		if xobj, ok := tr.info.Uses[x].(*types.Var); ok && tr.wildcards[xobj] {
-			return tr.matchWildcard(xobj, y)
-		}
+	if xobj, ok := tr.wildcardObj(x); ok {
+		return tr.matchWildcard(xobj, y)
 	}
 
 	// Object identifiers (including pkg-qualified ones)
@@ -81,7 +79,7 @@ func (tr *Transformer) matchExpr(x, y ast.Expr) bool {
 
 	case *ast.SelectorExpr:
 		y := y.(*ast.SelectorExpr)
-		return tr.matchExpr(x.X, y.X) &&
+		return tr.matchSelectorExpr(x, y) &&
 			tr.info.Selections[x].Obj() == tr.info.Selections[y].Obj()
 
 	case *ast.IndexExpr:
@@ -105,7 +103,7 @@ func (tr *Transformer) matchExpr(x, y ast.Expr) bool {
 	case *ast.CallExpr:
 		y := y.(*ast.CallExpr)
 		match := tr.matchExpr // function call
-		if tr.info.IsType(x.Fun) {
+		if tr.info.Types[x.Fun].IsType() {
 			match = tr.matchType // type conversion
 		}
 		return x.Ellipsis.IsValid() == y.Ellipsis.IsValid() &&
@@ -153,6 +151,28 @@ func (tr *Transformer) matchType(x, y ast.Expr) bool {
 	tx := tr.info.Types[x].Type
 	ty := tr.info.Types[y].Type
 	return types.Identical(tx, ty)
+}
+
+func (tr *Transformer) wildcardObj(x ast.Expr) (*types.Var, bool) {
+	if x, ok := x.(*ast.Ident); ok && x != nil && tr.allowWildcards {
+		if xobj, ok := tr.info.Uses[x].(*types.Var); ok && tr.wildcards[xobj] {
+			return xobj, true
+		}
+	}
+	return nil, false
+}
+
+func (tr *Transformer) matchSelectorExpr(x, y *ast.SelectorExpr) bool {
+	if xobj, ok := tr.wildcardObj(x.X); ok {
+		field := x.Sel.Name
+		yt := tr.info.TypeOf(y.X)
+		o, _, _ := types.LookupFieldOrMethod(yt, true, tr.currentPkg, field)
+		if o != nil {
+			tr.env[xobj.Name()] = y.X // record binding
+			return true
+		}
+	}
+	return tr.matchExpr(x.X, y.X)
 }
 
 func (tr *Transformer) matchWildcard(xobj *types.Var, y ast.Expr) bool {
@@ -217,9 +237,9 @@ func isRef(n ast.Node, info *loader.PackageInfo) types.Object {
 		return info.Uses[n]
 
 	case *ast.SelectorExpr:
-		sel := info.Selections[n]
-		if sel.Kind() == types.PackageObj {
-			return sel.Obj()
+		if _, ok := info.Selections[n]; !ok {
+			// qualified ident
+			return info.Uses[n.Sel]
 		}
 	}
 	return nil

@@ -10,8 +10,8 @@ import (
 	"go/token"
 	"sort"
 
-	"code.google.com/p/go.tools/go/types"
-	"code.google.com/p/go.tools/oracle/serial"
+	"golang.org/x/tools/go/types"
+	"golang.org/x/tools/oracle/serial"
 )
 
 // Referrers reports all identifiers that resolve to the same object
@@ -48,15 +48,15 @@ func referrers(o *Oracle, qpos *QueryPos) (queryResult, error) {
 }
 
 // same reports whether x and y are identical, or both are PkgNames
-// referring to the same Package.
+// that import the same Package.
 //
 func sameObj(x, y types.Object) bool {
 	if x == y {
 		return true
 	}
-	if _, ok := x.(*types.PkgName); ok {
-		if _, ok := y.(*types.PkgName); ok {
-			return x.Pkg() == y.Pkg()
+	if x, ok := x.(*types.PkgName); ok {
+		if y, ok := y.(*types.PkgName); ok {
+			return x.Imported() == y.Imported()
 		}
 	}
 	return false

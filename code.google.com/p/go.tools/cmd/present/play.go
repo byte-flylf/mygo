@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"code.google.com/p/go.tools/godoc/static"
+	"golang.org/x/tools/godoc/static"
 )
 
 var scripts = []string{"jquery.js", "jquery-ui.js", "playground.js", "play.js"}
@@ -28,7 +28,7 @@ func playScript(root, transport string) {
 			buf.WriteString(s)
 			continue
 		}
-		b, err := ioutil.ReadFile(filepath.Join(root, "js", p))
+		b, err := ioutil.ReadFile(filepath.Join(root, "static", p))
 		if err != nil {
 			panic(err)
 		}

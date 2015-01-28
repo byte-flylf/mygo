@@ -11,18 +11,22 @@ import (
 	"go/ast"
 	"strings"
 
-	"code.google.com/p/go.tools/cmd/vet/whitelist"
+	"golang.org/x/tools/cmd/vet/whitelist"
 )
 
 var compositeWhiteList = flag.Bool("compositewhitelist", true, "use composite white list; for testing only")
 
+func init() {
+	register("composites",
+		"check that composite literals used field-keyed elements",
+		checkUnkeyedLiteral,
+		compositeLit)
+}
+
 // checkUnkeyedLiteral checks if a composite literal is a struct literal with
 // unkeyed fields.
-func (f *File) checkUnkeyedLiteral(c *ast.CompositeLit) {
-	if !vet("composites") {
-		return
-	}
-
+func checkUnkeyedLiteral(f *File, node ast.Node) {
+	c := node.(*ast.CompositeLit)
 	typ := c.Type
 	for {
 		if typ1, ok := c.Type.(*ast.ParenExpr); ok {

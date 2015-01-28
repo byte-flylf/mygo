@@ -9,9 +9,9 @@ import (
 	pathpkg "path"
 	"time"
 
-	"code.google.com/p/go.tools/godoc/analysis"
-	"code.google.com/p/go.tools/godoc/util"
-	"code.google.com/p/go.tools/godoc/vfs"
+	"golang.org/x/tools/godoc/analysis"
+	"golang.org/x/tools/godoc/util"
+	"golang.org/x/tools/godoc/vfs"
 )
 
 // A Corpus holds all the state related to serving and indexing a
@@ -82,7 +82,7 @@ type Corpus struct {
 	// IndexDirectory optionally specifies a function to determine
 	// whether the provided directory should be indexed.  The dir
 	// will be of the form "/src/cmd/6a", "/doc/play",
-	// "/src/pkg/io", etc.
+	// "/src/io", etc.
 	// If nil, all directories are indexed if indexing is enabled.
 	IndexDirectory func(dir string) bool
 

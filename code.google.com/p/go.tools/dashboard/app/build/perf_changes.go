@@ -132,15 +132,16 @@ func handleOneCommit(pc *PerfConfig, com *Commit, rc *PerfResultCache, baseRes *
 			}
 		}
 		changes := significantPerfChanges(pc, builder, res0, res1)
+		changes = dedupPerfChanges(changes)
 		for _, ch := range changes {
 			v := new(perfChangesChange)
 			v.Builder = builder
-			v.Benchmark, v.Procs = splitBench(ch.bench)
-			v.diff = ch.diff
-			v.Val = fmt.Sprintf("%+.2f%%", ch.diff)
-			v.Hint = fmt.Sprintf("%v/%v", builder, ch.bench)
+			v.Benchmark, v.Procs = splitBench(ch.Bench)
+			v.diff = ch.Diff
+			v.Val = fmt.Sprintf("%+.2f%%", ch.Diff)
+			v.Hint = fmt.Sprintf("%v/%v", builder, ch.Bench)
 			v.Link = fmt.Sprintf("perfdetail?commit=%v&commit0=%v&builder=%v&benchmark=%v", com.Hash, res0.CommitHash, builder, v.Benchmark)
-			m := findMetric(uiCom, ch.metric)
+			m := findMetric(uiCom, ch.Metric)
 			if v.diff > 0 {
 				v.Style = "bad"
 				m.BadChanges = append(m.BadChanges, v)
@@ -165,6 +166,34 @@ func handleOneCommit(pc *PerfConfig, com *Commit, rc *PerfResultCache, baseRes *
 	return uiCom, nil
 }
 
+// Find builder-procs with the maximum absolute diff for every benchmark-metric, drop the rest.
+func dedupPerfChanges(changes []*PerfChange) (deduped []*PerfChange) {
+	maxDiff := make(map[string]float64)
+	maxBench := make(map[string]string)
+	// First, find the maximum.
+	for _, ch := range changes {
+		bench, _ := splitBench(ch.Bench)
+		k := bench + "|" + ch.Metric
+		v := ch.Diff
+		if v < 0 {
+			v = -v
+		}
+		if maxDiff[k] < v {
+			maxDiff[k] = v
+			maxBench[k] = ch.Builder + "|" + ch.Bench
+		}
+	}
+	// Then, remove the rest.
+	for _, ch := range changes {
+		bench, _ := splitBench(ch.Bench)
+		k := bench + "|" + ch.Metric
+		if maxBench[k] == ch.Builder+"|"+ch.Bench {
+			deduped = append(deduped, ch)
+		}
+	}
+	return
+}
+
 func findMetric(c *perfChangesCommit, metric string) *perfChangesMetric {
 	for _, m := range c.Metrics {
 		if m.Name == metric {
@@ -178,10 +207,12 @@ func findMetric(c *perfChangesCommit, metric string) *perfChangesMetric {
 }
 
 type uiPerfConfig struct {
-	Builders   []uiPerfConfigElem
-	Benchmarks []uiPerfConfigElem
-	Metrics    []uiPerfConfigElem
-	Procs      []uiPerfConfigElem
+	Builders    []uiPerfConfigElem
+	Benchmarks  []uiPerfConfigElem
+	Metrics     []uiPerfConfigElem
+	Procs       []uiPerfConfigElem
+	CommitsFrom []uiPerfConfigElem
+	CommitsTo   []uiPerfConfigElem
 }
 
 type uiPerfConfigElem struct {

@@ -15,12 +15,20 @@ package intsets
 
 // TODO(adonovan):
 // - Add SymmetricDifference(x, y *Sparse), i.e. x ∆ y.
+// - Add SubsetOf (x∖y=∅) and Intersects (x∩y≠∅) predicates.
 // - Add InsertAll(...int), RemoveAll(...int)
 // - Add 'bool changed' results for {Intersection,Difference}With too.
 //
 // TODO(adonovan): implement Dense, a dense bit vector with a similar API.
 // The space usage would be proportional to Max(), not Len(), and the
 // implementation would be based upon big.Int.
+//
+// TODO(adonovan): experiment with making the root block indirect (nil
+// iff IsEmpty).  This would reduce the memory usage when empty and
+// might simplify the aliasing invariants.
+//
+// TODO(adonovan): opt: make UnionWith and Difference faster.
+// These are the hot-spots for go/pointer.
 
 import (
 	"bytes"
@@ -50,7 +58,7 @@ type word uintptr
 const (
 	_m            = ^word(0)
 	bitsPerWord   = 8 << (_m>>8&1 + _m>>16&1 + _m>>32&1)
-	bitsPerBlock  = 128
+	bitsPerBlock  = 256 // optimal value for go/pointer solver performance
 	wordsPerBlock = bitsPerBlock / bitsPerWord
 )
 
@@ -161,9 +169,9 @@ func (b *block) min(take bool) int {
 		if w != 0 {
 			tz := ntz(w)
 			if take {
-				b.bits[i] = w &^ (1 << tz)
+				b.bits[i] = w &^ (1 << uint(tz))
 			}
-			return b.offset + int(i*bitsPerWord) + int(tz)
+			return b.offset + int(i*bitsPerWord) + tz
 		}
 	}
 	panic("BUG: empty block")
@@ -174,8 +182,6 @@ func (b *block) min(take bool) int {
 func (b *block) forEach(f func(int)) {
 	for i, w := range b.bits {
 		offset := b.offset + i*bitsPerWord
-		// TODO(adonovan): opt: uses subword
-		// masks to avoid testing every bit.
 		for bi := 0; w != 0 && bi < bitsPerWord; bi++ {
 			if w&1 != 0 {
 				f(offset)
@@ -206,10 +212,11 @@ func offsetAndBitIndex(x int) (int, uint) {
 // initialized.
 //
 func (s *Sparse) start() *block {
-	if s.root.next == nil {
-		s.root.next = &s.root
-		s.root.prev = &s.root
-	} else if s.root.next.prev != &s.root {
+	root := &s.root
+	if root.next == nil {
+		root.next = root
+		root.prev = root
+	} else if root.next.prev != root {
 		// Copying a Sparse x leads to pernicious corruption: the
 		// new Sparse y shares the old linked list, but iteration
 		// on y will never encounter &y.root so it goes into a
@@ -217,7 +224,7 @@ func (s *Sparse) start() *block {
 		panic("A Sparse has been copied without (*Sparse).Copy()")
 	}
 
-	return s.root.next
+	return root.next
 }
 
 // IsEmpty reports whether the set s is empty.
@@ -638,7 +645,7 @@ func (s *Sparse) Difference(x, y *Sparse) {
 			if sum != 0 {
 				sb = sb.next
 			} else {
-				// sb will be overrwritten or removed
+				// sb will be overwritten or removed
 			}
 
 			yb = yb.next
@@ -690,7 +697,7 @@ func (s *Sparse) String() string {
 	buf.WriteByte('{')
 	s.forEach(func(x int) {
 		if buf.Len() > 1 {
-			buf.WriteString(", ")
+			buf.WriteByte(' ')
 		}
 		fmt.Fprintf(&buf, "%d", x)
 	})
@@ -698,19 +705,44 @@ func (s *Sparse) String() string {
 	return buf.String()
 }
 
-// BitString returns the set s as a non-empty string of 1s and 0s.
-// The ith character is 1 if the set contains i.
+// BitString returns the set as a string of 1s and 0s denoting the sum
+// of the i'th powers of 2, for each i in s.  A radix point, always
+// preceded by a digit, appears if the sum is non-integral.
+//
+// Examples:
+//              {}.BitString() =      "0"
+//           {4,5}.BitString() = "110000"
+//            {-3}.BitString() =      "0.001"
+//      {-3,0,4,5}.BitString() = "110001.001"
 //
 func (s *Sparse) BitString() string {
 	if s.IsEmpty() {
 		return "0"
 	}
-	b := make([]byte, s.Max()+1)
+
+	min, max := s.Min(), s.Max()
+	var nbytes int
+	if max > 0 {
+		nbytes = max
+	}
+	nbytes++ // zero bit
+	radix := nbytes
+	if min < 0 {
+		nbytes += len(".") - min
+	}
+
+	b := make([]byte, nbytes)
 	for i := range b {
 		b[i] = '0'
 	}
+	if radix < nbytes {
+		b[radix] = '.'
+	}
 	s.forEach(func(x int) {
-		b[x] = '1'
+		if x >= 0 {
+			x += len(".")
+		}
+		b[radix-x] = '1'
 	})
 	return string(b)
 }

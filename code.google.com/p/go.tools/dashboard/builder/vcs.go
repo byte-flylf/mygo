@@ -5,14 +5,16 @@
 package main
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 
-	"code.google.com/p/go.tools/go/vcs"
+	"golang.org/x/tools/go/vcs"
 )
 
 // Repo represents a mercurial repository.
@@ -72,9 +74,10 @@ func (r *Repo) Export(path, rev string) error {
 		return err
 	}
 
-	args := []string{r.Master.VCS.Cmd, "archive", "-t", "files", "-r", rev, path}
-	if err := run(*cmdTimeout, nil, downloadPath, args...); err != nil {
-		return fmt.Errorf("executing %s: %v", strings.Join(args, " "), err)
+	cmd := exec.Command(r.Master.VCS.Cmd, "archive", "-t", "files", "-r", rev, path)
+	cmd.Dir = downloadPath
+	if err := run(cmd); err != nil {
+		return fmt.Errorf("executing %v: %v", cmd.Args, err)
 	}
 	return nil
 }
@@ -126,6 +129,10 @@ func (r *Repo) Log() ([]HgLog, error) {
 		if err != nil {
 			return err
 		}
+
+		// We have a commit with description that contains 0x1b byte.
+		// Mercurial does not escape it, but xml.Unmarshal does not accept it.
+		data = bytes.Replace(data, []byte{0x1b}, []byte{'?'}, -1)
 
 		err = xml.Unmarshal([]byte("<Top>"+string(data)+"</Top>"), &logStruct)
 		if err != nil {
@@ -195,7 +202,7 @@ type HgLog struct {
 const xmlLogTemplate = `
         <Log>
         <Hash>{node|escape}</Hash>
-        <Parent>{parents}</Parent>
+        <Parent>{p1node}</Parent>
         <Author>{author|escape}</Author>
         <Date>{date|rfc3339date}</Date>
         <Desc>{desc|escape}</Desc>

@@ -540,6 +540,137 @@ func main() { fmt.Println("Hello, world") }
 
 func notmain() { fmt.Println("Hello, world") }`,
 	},
+
+	// Remove first import within in a 2nd/3rd/4th/etc. section.
+	// golang.org/issue/7679
+	{
+		name: "issue 7679",
+		in: `package main
+
+import (
+	"fmt"
+
+	"github.com/foo/bar"
+	"github.com/foo/qux"
+)
+
+func main() {
+	var _ = fmt.Println
+	//var _ = bar.A
+	var _ = qux.B
+}
+`,
+		out: `package main
+
+import (
+	"fmt"
+
+	"github.com/foo/qux"
+)
+
+func main() {
+	var _ = fmt.Println
+	//var _ = bar.A
+	var _ = qux.B
+}
+`,
+	},
+
+	// Blank line can be added before all types of import declarations.
+	// golang.org/issue/7866
+	{
+		name: "issue 7866",
+		in: `package main
+
+import (
+	"fmt"
+	renamed_bar "github.com/foo/bar"
+
+	. "github.com/foo/baz"
+	"io"
+
+	_ "github.com/foo/qux"
+	"strings"
+)
+
+func main() {
+	_, _, _, _, _ = fmt.Errorf, io.Copy, strings.Contains, renamed_bar.A, B
+}
+`,
+		out: `package main
+
+import (
+	"fmt"
+
+	renamed_bar "github.com/foo/bar"
+
+	"io"
+
+	. "github.com/foo/baz"
+
+	"strings"
+
+	_ "github.com/foo/qux"
+)
+
+func main() {
+	_, _, _, _, _ = fmt.Errorf, io.Copy, strings.Contains, renamed_bar.A, B
+}
+`,
+	},
+
+	// Non-idempotent comment formatting
+	// golang.org/issue/8035
+	{
+		name: "issue 8035",
+		in: `package main
+
+import (
+	"fmt"                     // A
+	"go/ast"                  // B
+	_ "launchpad.net/gocheck" // C
+)
+
+func main() { _, _ = fmt.Print, ast.Walk }
+`,
+		out: `package main
+
+import (
+	"fmt"    // A
+	"go/ast" // B
+
+	_ "launchpad.net/gocheck" // C
+)
+
+func main() { _, _ = fmt.Print, ast.Walk }
+`,
+	},
+
+	// Failure to delete all duplicate imports
+	// golang.org/issue/8459
+	{
+		name: "issue 8459",
+		in: `package main
+
+import (
+	"fmt"
+	"log"
+	"log"
+	"math"
+)
+
+func main() { fmt.Println("pi:", math.Pi) }
+`,
+		out: `package main
+
+import (
+	"fmt"
+	"math"
+)
+
+func main() { fmt.Println("pi:", math.Pi) }
+`,
+	},
 }
 
 func TestFixImports(t *testing.T) {
@@ -597,6 +728,12 @@ func TestFindImportGoPath(t *testing.T) {
 
 	// Test against imaginary bits/bytes package in std lib
 	bytesDir := filepath.Join(goroot, "src", "pkg", "bits", "bytes")
+	for _, tag := range build.Default.ReleaseTags {
+		// Go 1.4 rearranged the GOROOT tree to remove the "pkg" path component.
+		if tag == "go1.4" {
+			bytesDir = filepath.Join(goroot, "src", "bits", "bytes")
+		}
+	}
 	if err := os.MkdirAll(bytesDir, 0755); err != nil {
 		t.Fatal(err)
 	}

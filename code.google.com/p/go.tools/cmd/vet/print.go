@@ -15,10 +15,18 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"code.google.com/p/go.tools/go/exact"
+	"golang.org/x/tools/go/exact"
+	"golang.org/x/tools/go/types"
 )
 
 var printfuncs = flag.String("printfuncs", "", "comma-separated list of print function names to check")
+
+func init() {
+	register("printf",
+		"check printf-like invocations",
+		checkFmtPrintfCall,
+		funcDecl, callExpr)
+}
 
 // printfList records the formatted-print functions. The value is the location
 // of the format parameter. Names are lower-cased so the lookup is
@@ -27,6 +35,7 @@ var printfList = map[string]int{
 	"errorf":  0,
 	"fatalf":  0,
 	"fprintf": 1,
+	"logf":    0,
 	"panicf":  0,
 	"printf":  0,
 	"sprintf": 0,
@@ -39,16 +48,41 @@ var printList = map[string]int{
 	"error":  0,
 	"fatal":  0,
 	"fprint": 1, "fprintln": 1,
+	"log":   0,
 	"panic": 0, "panicln": 0,
 	"print": 0, "println": 0,
 	"sprint": 0, "sprintln": 0,
 }
 
 // checkCall triggers the print-specific checks if the call invokes a print function.
-func (f *File) checkFmtPrintfCall(call *ast.CallExpr, Name string) {
-	if !vet("printf") {
+func checkFmtPrintfCall(f *File, node ast.Node) {
+	if d, ok := node.(*ast.FuncDecl); ok && isStringer(f, d) {
+		// Remember we saw this.
+		if f.stringers == nil {
+			f.stringers = make(map[*ast.Object]bool)
+		}
+		if l := d.Recv.List; len(l) == 1 {
+			if n := l[0].Names; len(n) == 1 {
+				f.stringers[n[0].Obj] = true
+			}
+		}
 		return
 	}
+
+	call, ok := node.(*ast.CallExpr)
+	if !ok {
+		return
+	}
+	var Name string
+	switch x := call.Fun.(type) {
+	case *ast.Ident:
+		Name = x.Name
+	case *ast.SelectorExpr:
+		Name = x.Sel.Name
+	default:
+		return
+	}
+
 	name := strings.ToLower(Name)
 	if skip, ok := printfList[name]; ok {
 		f.checkPrintf(call, Name, skip)
@@ -58,6 +92,14 @@ func (f *File) checkFmtPrintfCall(call *ast.CallExpr, Name string) {
 		f.checkPrint(call, Name, skip)
 		return
 	}
+}
+
+// isStringer returns true if the provided declaration is a "String() string"
+// method, an implementation of fmt.Stringer.
+func isStringer(f *File, d *ast.FuncDecl) bool {
+	return d.Recv != nil && d.Name.Name == "String" && d.Type.Results != nil &&
+		len(d.Type.Params.List) == 0 && len(d.Type.Results.List) == 1 &&
+		f.pkg.types[d.Type.Results.List[0].Type].Type == types.Typ[types.String]
 }
 
 // formatState holds the parsed representation of a printf directive such as "%3.*[4]d".
@@ -396,7 +438,7 @@ func (f *File) okPrintfArg(call *ast.CallExpr, state *formatState) (ok bool) {
 // recursiveStringer reports whether the provided argument is r or &r for the
 // fmt.Stringer receiver identifier r.
 func (f *File) recursiveStringer(e ast.Expr) bool {
-	if f.lastStringerReceiver == nil {
+	if len(f.stringers) == 0 {
 		return false
 	}
 	var obj *ast.Object
@@ -420,7 +462,7 @@ func (f *File) recursiveStringer(e ast.Expr) bool {
 	// We compare the underlying Object, which checks that the identifier
 	// is the one we declared as the receiver for the String method in
 	// which this printf appears.
-	return obj == f.lastStringerReceiver
+	return f.stringers[obj]
 }
 
 // argCanBeChecked reports whether the specified argument is statically present;
@@ -454,6 +496,18 @@ func (f *File) checkPrint(call *ast.CallExpr, name string, firstArg int) {
 	isLn := strings.HasSuffix(name, "ln")
 	isF := strings.HasPrefix(name, "F")
 	args := call.Args
+	if name == "Log" && len(args) > 0 {
+		// Special case: Don't complain about math.Log or cmplx.Log.
+		// Not strictly necessary because the only complaint likely is for Log("%d")
+		// but it feels wrong to check that math.Log is a good print function.
+		if sel, ok := args[0].(*ast.SelectorExpr); ok {
+			if x, ok := sel.X.(*ast.Ident); ok {
+				if x.Name == "math" || x.Name == "cmplx" {
+					return
+				}
+			}
+		}
+	}
 	// check for Println(os.Stderr, ...)
 	if firstArg == 0 && !isF && len(args) > 0 {
 		if sel, ok := args[0].(*ast.SelectorExpr); ok {

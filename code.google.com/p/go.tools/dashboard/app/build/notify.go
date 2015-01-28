@@ -13,7 +13,9 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"regexp"
+	"runtime"
 	"sort"
 	"text/template"
 
@@ -34,11 +36,12 @@ const (
 // ignoreFailure is a set of builders that we don't email about because
 // they are not yet production-ready.
 var ignoreFailure = map[string]bool{
-	"dragonfly-386":           true,
-	"dragonfly-amd64":         true,
-	"netbsd-arm-rpi":          true,
-	"solaris-amd64-smartos":   true,
-	"solaris-amd64-solaris11": true,
+	"dragonfly-386":         true,
+	"dragonfly-amd64":       true,
+	"freebsd-arm":           true,
+	"netbsd-amd64-bsiegert": true,
+	"netbsd-arm-rpi":        true,
+	"plan9-amd64-aram":      true,
 }
 
 // notifyOnFailure checks whether the supplied Commit or the subsequent
@@ -125,22 +128,23 @@ var notifyLater = delay.Func("notify", notify)
 // notify tries to update the CL for the given Commit with a failure message.
 // If it doesn't succeed, it sends a failure email to golang-dev.
 func notify(c appengine.Context, com *Commit, builder, logHash string) {
-	if !updateCL(c, com, builder, logHash) {
+	v := url.Values{"brokebuild": {builder}, "log": {logHash}}
+	if !updateCL(c, com, v) {
 		// Send a mail notification if the CL can't be found.
 		sendFailMail(c, com, builder, logHash)
 	}
 }
 
-// updateCL updates the CL for the given Commit with a failure message
-// for the given builder.
-func updateCL(c appengine.Context, com *Commit, builder, logHash string) bool {
+// updateCL tells gobot to update the CL for the given Commit with
+// the provided query values.
+func updateCL(c appengine.Context, com *Commit, v url.Values) bool {
 	cl, err := lookupCL(c, com)
 	if err != nil {
 		c.Errorf("could not find CL for %v: %v", com.Hash, err)
 		return false
 	}
-	url := fmt.Sprintf("%v?cl=%v&brokebuild=%v&log=%v", gobotBase, cl, builder, logHash)
-	r, err := urlfetch.Client(c).Post(url, "text/plain", nil)
+	u := fmt.Sprintf("%v?cl=%v&%s", gobotBase, cl, v.Encode())
+	r, err := urlfetch.Client(c).Post(u, "text/plain", nil)
 	if err != nil {
 		c.Errorf("could not update CL %v: %v", cl, err)
 		return false
@@ -197,10 +201,11 @@ var (
 	)
 )
 
+// MUST be called from inside a transaction.
 func sendPerfFailMail(c appengine.Context, builder string, res *PerfResult) error {
 	com := &Commit{Hash: res.CommitHash}
 	if err := datastore.Get(c, com.Key(c), com); err != nil {
-		return fmt.Errorf("getting commit %v: %v", com.Hash, err)
+		return err
 	}
 	logHash := ""
 	parsed := res.ParseData()
@@ -216,15 +221,23 @@ func sendPerfFailMail(c appengine.Context, builder string, res *PerfResult) erro
 	return commonNotify(c, com, builder, logHash)
 }
 
+// commonNotify MUST!!! be called from within a transaction inside which
+// the provided Commit entity was retrieved from the datastore.
 func commonNotify(c appengine.Context, com *Commit, builder, logHash string) error {
+	if com.Num == 0 || com.Desc == "" {
+		stk := make([]byte, 10000)
+		n := runtime.Stack(stk, false)
+		stk = stk[:n]
+		c.Errorf("refusing to notify with com=%+v\n%s", *com, string(stk))
+		return fmt.Errorf("misuse of commonNotify")
+	}
 	if com.FailNotificationSent {
 		return nil
 	}
 	c.Infof("%s is broken commit; notifying", com.Hash)
 	notifyLater.Call(c, com, builder, logHash) // add task to queue
 	com.FailNotificationSent = true
-	_, err := datastore.Put(c, com.Key(c), com)
-	return err
+	return putCommit(c, com)
 }
 
 // sendFailMail sends a mail notification that the build failed on the
@@ -306,28 +319,44 @@ func sendPerfMailFunc(c appengine.Context, com *Commit, prevCommitHash, builder 
 		// Find the benchmark.
 		var b *PerfChangeBenchmark
 		for _, b1 := range benchmarks {
-			if b1.Name == ch.bench {
+			if b1.Name == ch.Bench {
 				b = b1
 				break
 			}
 		}
 		if b == nil {
-			b = &PerfChangeBenchmark{Name: ch.bench}
+			b = &PerfChangeBenchmark{Name: ch.Bench}
 			benchmarks = append(benchmarks, b)
 		}
-		b.Metrics = append(b.Metrics, &PerfChangeMetric{Name: ch.metric, Old: ch.old, New: ch.new, Delta: ch.diff})
+		b.Metrics = append(b.Metrics, &PerfChangeMetric{Name: ch.Metric, Old: ch.Old, New: ch.New, Delta: ch.Diff})
 	}
 	for _, b := range benchmarks {
 		sort.Sort(PerfChangeMetricSlice(b.Metrics))
 	}
 	sort.Sort(PerfChangeBenchmarkSlice(benchmarks))
 
-	url := fmt.Sprintf("http://%v/perfdetail?commit=%v&commit0=%v&kind=builder&builder=%v", domain, com.Hash, prevCommitHash, builder)
+	u := fmt.Sprintf("http://%v/perfdetail?commit=%v&commit0=%v&kind=builder&builder=%v", domain, com.Hash, prevCommitHash, builder)
 
-	// prepare mail message
+	// Prepare mail message (without Commit, for updateCL).
 	var body bytes.Buffer
 	err := sendPerfMailTmpl.Execute(&body, map[string]interface{}{
-		"Builder": builder, "Commit": com, "Hostname": domain, "Url": url, "Benchmarks": benchmarks,
+		"Builder": builder, "Hostname": domain, "Url": u, "Benchmarks": benchmarks,
+	})
+	if err != nil {
+		c.Errorf("rendering perf mail template: %v", err)
+		return
+	}
+
+	// First, try to update the CL.
+	v := url.Values{"textmsg": {body.String()}}
+	if updateCL(c, com, v) {
+		return
+	}
+
+	// Otherwise, send mail (with Commit, for independent mail message).
+	body.Reset()
+	err = sendPerfMailTmpl.Execute(&body, map[string]interface{}{
+		"Builder": builder, "Commit": com, "Hostname": domain, "Url": u, "Benchmarks": benchmarks,
 	})
 	if err != nil {
 		c.Errorf("rendering perf mail template: %v", err)

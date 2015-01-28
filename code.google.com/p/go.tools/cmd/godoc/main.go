@@ -44,18 +44,18 @@ import (
 	"runtime"
 	"strings"
 
-	"code.google.com/p/go.tools/godoc"
-	"code.google.com/p/go.tools/godoc/analysis"
-	"code.google.com/p/go.tools/godoc/static"
-	"code.google.com/p/go.tools/godoc/vfs"
-	"code.google.com/p/go.tools/godoc/vfs/gatefs"
-	"code.google.com/p/go.tools/godoc/vfs/mapfs"
-	"code.google.com/p/go.tools/godoc/vfs/zipfs"
+	"golang.org/x/tools/godoc"
+	"golang.org/x/tools/godoc/analysis"
+	"golang.org/x/tools/godoc/static"
+	"golang.org/x/tools/godoc/vfs"
+	"golang.org/x/tools/godoc/vfs/gatefs"
+	"golang.org/x/tools/godoc/vfs/mapfs"
+	"golang.org/x/tools/godoc/vfs/zipfs"
 )
 
 const (
 	defaultAddr = ":6060" // default webserver address
-	toolsPath   = "code.google.com/p/go.tools/cmd/"
+	toolsPath   = "golang.org/x/tools/cmd/"
 )
 
 var (
@@ -173,7 +173,8 @@ func main() {
 	// Determine file system to use.
 	if *zipfile == "" {
 		// use file system of underlying OS
-		fs.Bind("/", gatefs.New(vfs.OS(*goroot), fsGate), "/", vfs.BindReplace)
+		rootfs := gatefs.New(vfs.OS(*goroot), fsGate)
+		fs.Bind("/", rootfs, "/", vfs.BindReplace)
 	} else {
 		// use file system specified via .zip file (path separator must be '/')
 		rc, err := zip.OpenReader(*zipfile)
@@ -191,7 +192,7 @@ func main() {
 
 	// Bind $GOPATH trees into Go root.
 	for _, p := range filepath.SplitList(build.Default.GOPATH) {
-		fs.Bind("/src/pkg", gatefs.New(vfs.OS(p), fsGate), "/src", vfs.BindAfter)
+		fs.Bind("/src", gatefs.New(vfs.OS(p), fsGate), "/src", vfs.BindAfter)
 	}
 
 	httpMode := *httpAddr != ""
@@ -221,6 +222,7 @@ func main() {
 	corpus.IndexThrottle = *indexThrottle
 	if *writeIndex {
 		corpus.IndexThrottle = 1.0
+		corpus.IndexEnabled = true
 	}
 	if *writeIndex || httpMode || *urlFlag != "" {
 		if err := corpus.Init(); err != nil {

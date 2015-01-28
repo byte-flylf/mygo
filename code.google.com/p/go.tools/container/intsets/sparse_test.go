@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"code.google.com/p/go.tools/container/intsets"
+	"golang.org/x/tools/container/intsets"
 )
 
 func TestBasics(t *testing.T) {
@@ -22,9 +22,6 @@ func TestBasics(t *testing.T) {
 	}
 	if s := s.String(); s != "{}" {
 		t.Errorf("String({}): got %q, want \"{}\"", s)
-	}
-	if s := s.BitString(); s != "0" {
-		t.Errorf("BitString({}): got %q, want \"0\"", s)
 	}
 	if s.Has(3) {
 		t.Errorf("Has(3): got true, want false")
@@ -43,8 +40,8 @@ func TestBasics(t *testing.T) {
 	if !s.Insert(435) {
 		t.Errorf("Insert(435): got false, want true")
 	}
-	if s := s.String(); s != "{3, 435}" {
-		t.Errorf("String({3, 435}): got %q, want \"{3, 435}\"", s)
+	if s := s.String(); s != "{3 435}" {
+		t.Errorf("String({3 435}): got %q, want \"{3 435}\"", s)
 	}
 	if max := s.Max(); max != 435 {
 		t.Errorf("Max: got %d, want 435", max)
@@ -71,17 +68,17 @@ func TestMoreBasics(t *testing.T) {
 		t.Errorf("%s.Len: got %d, want 3", set, set.Len())
 	}
 	if set.IsEmpty() {
-		t.Error("%s.IsEmpty: got true", set)
+		t.Errorf("%s.IsEmpty: got true", set)
 	}
 	if !set.Has(123) {
-		t.Error("%s.Has(123): got false", set)
+		t.Errorf("%s.Has(123): got false", set)
 	}
 	if set.Has(1234) {
-		t.Error("%s.Has(1234): got true", set)
+		t.Errorf("%s.Has(1234): got true", set)
 	}
 	got := set.AppendTo([]int{-1})
 	if want := []int{-1, 123, 456, 789}; fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Error("%s.AppendTo: got %v, want %v", got, want)
+		t.Errorf("%s.AppendTo: got %v, want %v", got, want)
 	}
 
 	set.Clear()
@@ -90,10 +87,10 @@ func TestMoreBasics(t *testing.T) {
 		t.Errorf("Clear: got %d, want 0", set.Len())
 	}
 	if !set.IsEmpty() {
-		t.Error("IsEmpty: got false")
+		t.Errorf("IsEmpty: got false")
 	}
 	if set.Has(123) {
-		t.Error("%s.Has: got false", set)
+		t.Errorf("%s.Has: got false", set)
 	}
 }
 
@@ -421,13 +418,24 @@ func TestIntersectionWith(t *testing.T) {
 }
 
 func TestBitString(t *testing.T) {
-	var set intsets.Sparse
-	set.Insert(0)
-	set.Insert(7)
-	set.Insert(177)
-	want := "10000001" + strings.Repeat("0", 169) + "1"
-	if got := set.BitString(); got != want {
-		t.Errorf("BitString: got %s, want %s", got, want)
+	for _, test := range []struct {
+		input []int
+		want  string
+	}{
+		{nil, "0"},
+		{[]int{0}, "1"},
+		{[]int{0, 4, 5}, "110001"},
+		{[]int{0, 7, 177}, "1" + strings.Repeat("0", 169) + "10000001"},
+		{[]int{-3, 0, 4, 5}, "110001.001"},
+		{[]int{-3}, "0.001"},
+	} {
+		var set intsets.Sparse
+		for _, x := range test.input {
+			set.Insert(x)
+		}
+		if got := set.BitString(); got != test.want {
+			t.Errorf("BitString(%s) = %s, want %s", set.String(), got, test.want)
+		}
 	}
 }
 
@@ -440,7 +448,7 @@ func TestFailFastOnShallowCopy(t *testing.T) {
 		got := fmt.Sprint(recover())
 		want := "A Sparse has been copied without (*Sparse).Copy()"
 		if got != want {
-			t.Error("shallow copy: recover() = %q, want %q", got, want)
+			t.Errorf("shallow copy: recover() = %q, want %q", got, want)
 		}
 	}()
 	y.String() // panics
@@ -450,6 +458,7 @@ func TestFailFastOnShallowCopy(t *testing.T) {
 // -- Benchmarks -------------------------------------------------------
 
 // TODO(adonovan):
+// - Add benchmarks of each method.
 // - Gather set distributions from pointer analysis.
 // - Measure memory usage.
 
@@ -458,7 +467,7 @@ func BenchmarkSparseBitVector(b *testing.B) {
 	for tries := 0; tries < b.N; tries++ {
 		var x, y, z intsets.Sparse
 		for i := 0; i < 1000; i++ {
-			n := int(prng.Int()) % 10000
+			n := int(prng.Int()) % 100000
 			if i%2 == 0 {
 				x.Insert(n)
 			} else {
@@ -475,7 +484,7 @@ func BenchmarkHashTable(b *testing.B) {
 	for tries := 0; tries < b.N; tries++ {
 		x, y, z := make(map[int]bool), make(map[int]bool), make(map[int]bool)
 		for i := 0; i < 1000; i++ {
-			n := int(prng.Int()) % 10000
+			n := int(prng.Int()) % 100000
 			if i%2 == 0 {
 				x[n] = true
 			} else {
@@ -496,5 +505,17 @@ func BenchmarkHashTable(b *testing.B) {
 				z[n] = true
 			}
 		}
+	}
+}
+
+func BenchmarkAppendTo(b *testing.B) {
+	prng := rand.New(rand.NewSource(0))
+	var x intsets.Sparse
+	for i := 0; i < 1000; i++ {
+		x.Insert(int(prng.Int()) % 10000)
+	}
+	var space [1000]int
+	for tries := 0; tries < b.N; tries++ {
+		x.AppendTo(space[:0])
 	}
 }

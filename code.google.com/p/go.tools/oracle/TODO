@@ -15,14 +15,9 @@ tools, which should act as if they were saved.
 
 Fix: make the guessImportPath hack work with external _test.go files too.
 
-Allow the analysis scope to include multiple test packages at once.
-
 Include complete pos/end information Serial output.
   But beware that sometimes a single token (e.g. +) is more helpful
   than the pos/end of the containing expression (e.g. x \n + \n y).
-
-Remove pointer analysis context information when printing results as
-it tends to be unhelpful.
 
 Specific queries
 ================
@@ -73,7 +68,7 @@ describe
 
 peers
 
-  Permit querying from a makechan, close(), for...range, or reflective op.
+  Permit querying from a makechan, for...range, or reflective op.
 
   Report aliasing reflect.{Send,Recv,Close} and close() operations.
 

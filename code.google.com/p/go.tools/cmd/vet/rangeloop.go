@@ -23,13 +23,18 @@ package main
 
 import "go/ast"
 
+func init() {
+	register("rangeloops",
+		"check that range loop variables are used correctly",
+		checkRangeLoop,
+		rangeStmt)
+}
+
 // checkRangeLoop walks the body of the provided range statement, checking if
 // its index or value variables are used unsafely inside goroutines or deferred
 // function literals.
-func checkRangeLoop(f *File, n *ast.RangeStmt) {
-	if !vet("rangeloops") {
-		return
-	}
+func checkRangeLoop(f *File, node ast.Node) {
+	n := node.(*ast.RangeStmt)
 	key, _ := n.Key.(*ast.Ident)
 	val, _ := n.Value.(*ast.Ident)
 	if key == nil && val == nil {
@@ -58,7 +63,7 @@ func checkRangeLoop(f *File, n *ast.RangeStmt) {
 			return true
 		}
 		if key != nil && id.Obj == key.Obj || val != nil && id.Obj == val.Obj {
-			f.Bad(id.Pos(), "range variable", id.Name, "enclosed by function")
+			f.Bad(id.Pos(), "range variable", id.Name, "captured by func literal")
 		}
 		return true
 	})

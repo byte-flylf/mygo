@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"go/token"
 
-	"code.google.com/p/go.tools/go/callgraph"
-	"code.google.com/p/go.tools/go/ssa"
-	"code.google.com/p/go.tools/oracle/serial"
+	"golang.org/x/tools/go/callgraph"
+	"golang.org/x/tools/go/ssa"
+	"golang.org/x/tools/oracle/serial"
 )
 
 // Callstack displays an arbitrary path from a root of the callgraph
@@ -71,7 +71,7 @@ func (r *callstackResult) display(printf printfFunc) {
 		printf(r.target, "%s", r.target)
 		for i := len(r.callpath) - 1; i >= 0; i-- {
 			edge := r.callpath[i]
-			printf(edge.Site, "%s from %s", edge.Site.Common().Description(), edge.Caller.Func)
+			printf(edge, "%s from %s", edge.Description(), edge.Caller.Func)
 		}
 	} else {
 		printf(r.target, "%s is unreachable in this analysis scope", r.target)
@@ -83,9 +83,9 @@ func (r *callstackResult) toSerial(res *serial.Result, fset *token.FileSet) {
 	for i := len(r.callpath) - 1; i >= 0; i-- { // (innermost first)
 		edge := r.callpath[i]
 		callers = append(callers, serial.Caller{
-			Pos:    fset.Position(edge.Site.Pos()).String(),
+			Pos:    fset.Position(edge.Pos()).String(),
 			Caller: edge.Caller.Func.String(),
-			Desc:   edge.Site.Common().Description(),
+			Desc:   edge.Description(),
 		})
 	}
 	res.Callstack = &serial.CallStack{

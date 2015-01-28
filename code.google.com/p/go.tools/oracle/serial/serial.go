@@ -22,6 +22,7 @@ type Peers struct {
 	Allocs   []string `json:"allocs,omitempty"`   // locations of aliased make(chan) ops
 	Sends    []string `json:"sends,omitempty"`    // locations of aliased ch<-x ops
 	Receives []string `json:"receives,omitempty"` // locations of aliased <-ch ops
+	Closes   []string `json:"closes,omitempty"`   // locations of aliased close(ch) ops
 }
 
 // A Referrers is the result of a 'referrers' query.
@@ -123,8 +124,8 @@ type ImplementsType struct {
 // a "what" query.
 type SyntaxNode struct {
 	Description string `json:"desc"`  // description of syntax tree
-	Start       int    `json:"start"` // start offset (0-based)
-	End         int    `json:"end"`   // end offset
+	Start       int    `json:"start"` // start byte offset, 0-based
+	End         int    `json:"end"`   // end byte offset
 }
 
 // A What is the result of the "what" query, which quickly identifies

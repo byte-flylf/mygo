@@ -23,7 +23,7 @@ package oracle_test
 // correctness, since it is critical information.)
 //
 // Run this test with:
-// 	% go test code.google.com/p/go.tools/oracle -update
+// 	% go test golang.org/x/tools/oracle -update
 // to update the golden files.
 
 import (
@@ -44,8 +44,8 @@ import (
 	"strings"
 	"testing"
 
-	"code.google.com/p/go.tools/go/loader"
-	"code.google.com/p/go.tools/oracle"
+	"golang.org/x/tools/go/loader"
+	"golang.org/x/tools/oracle"
 )
 
 var updateFlag = flag.Bool("update", false, "Update the golden files.")
@@ -74,8 +74,8 @@ func parseQueries(t *testing.T, filename string) []*query {
 	}
 
 	// Parse the file once to discover the test queries.
-	var fset token.FileSet
-	f, err := parser.ParseFile(&fset, filename, filedata, parser.ParseComments)
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, filename, filedata, parser.ParseComments)
 	if err != nil {
 		t.Fatal(err)
 	}
